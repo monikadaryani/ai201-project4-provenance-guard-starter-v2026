@@ -39,6 +39,111 @@
 <!-- The path a submission takes, from arriving to the label a reader sees.
      Six or seven steps — this is the trace you wrote in Milestone 1. -->
 
+**1. The request arrives (`POST /submit` in `app.py`).** A client sends the text to the service as JSON, for example `{"text": "...", "creator_id": "..."}`. Flask receives it and turns the JSON body into a Python dictionary with `request.get_json()`. **It adds** a readable form of the submission that the rest of the code can work with. Before this step it's just bytes over the network. After it, there's a dict holding the `text` and the `creator_id` of whoever sent it. Nothing has been judged yet.
+
+**2. The submission is unpacked and given an ID (`submit()` in `app.py`).** The handler takes `text` and `creator_id` out of the dictionary and checks that the text is actually there. If it's missing or empty, the request is turned away with an error here rather than crashing a later step. It then creates a `content_id` with `uuid.uuid4()`. **It adds** a unique ID for this one submission. Every later step, the log entry, and any appeal the writer files will use this ID to refer to it.
+
+**3. The model signal (`detector.model_signal` in `detector.py`).** The text is run through GPT-2 on the local machine to measure its perplexity, meaning how predictable the model finds each next word. That perplexity is squashed onto a 0–1 scale, where low perplexity means a high score. **It adds** `model_score`, a number from 0 to 1 where higher means "reads more like AI." This step judges the words themselves, not the shape of the text.
+
+**4. The style signal (`stylometry.style_signal` in `stylometry.py`).** The same text is measured as shape only, without reading its meaning. It looks at how much sentence lengths vary, how often vocabulary repeats, and how much punctuation there is and how varied it is. Those three measures are scaled and combined into one number. **It adds** `style_score`, a second 0–1 score where higher means "more like AI." It comes from a completely different kind of evidence than step 3.
+
+**5. The two signals are combined (`scoring.combine_signals` in `scoring.py`).** The two scores are merged into one using the combining rule described under *Signals and Scoring* below. This is also where the service decides what to do when the two signals disagree. **It adds** `combined_score`, one number from 0 (confidently human) to 1 (confidently AI). Every later decision is based on this number.
+
+**6. The score becomes words (`scoring.score_to_label` in `scoring.py`).** The combined score is compared against two thresholds in `config.py`, `HUMAN_THRESHOLD` and `AI_THRESHOLD`. The comparison puts it in one of three bands: high-confidence human, unsure, or high-confidence AI. **It adds** a `guess` (`human` / `unsure` / `ai`) for the machine and a `label`, which is the plain-language sentence a reader actually sees in place of a number.
+
+**7. The decision is logged and returned (`audit.log_decision` in `audit.py`, then the JSON response).** The service writes one line to the append-only audit log. That line holds the timestamp, `content_id`, `creator_id`, both signal scores, the combined score, the guess, the label, and the status `decided`. It then sends the same information back to the caller as JSON. **It adds** a permanent record of the decision that can be checked later and that `/appeal` can find by `content_id`. The response also delivers the label to the reader, which is the end of the path.
+
+### Tracing the false positive
+
+**The writer.** A student writing in their second language submits a paragraph they wrote themselves. They stick to words they're sure of and keep sentences short and similar so they don't make grammar mistakes. Every word is theirs.
+
+**Step 3, model signal.** Common words in ordinary sentences are exactly what GPT-2 predicts well, so perplexity comes out low, around 25. Using the formula in `detector.py` (midpoint 45, steepness 1.6), that gives a `model_score` of about **0.72**.
+
+**Step 4, style signal.** The sentences are all about the same length, the vocabulary repeats, and the punctuation is just periods and commas. On every measure that's the "even" shape this signal reads as AI. Say `style_score` ≈ **0.70**.
+
+**Step 5, combine.** With the placeholder 50/50 average, `combined_score` ≈ **0.71**. The two signals don't cancel each other out, because they share the same blind spot: plain, careful writing looks predictable *and* looks even. A second signal only protects the writer if it fails on different text than the first one.
+
+**Step 6, label.** 0.71 is above `AI_THRESHOLD` (0.65), so `guess` is `ai` and the writer sees the **high-confidence AI** label. To them it reads as an accusation, with a sure-sounding tone about something false. Nothing in the label tells them why it was flagged or that they can push back.
+
+**Step 7, log.** The decision is recorded with status `decided` and their `content_id`.
+
+**What they can do.** Their only route is `POST /appeal` with their `content_id` and a written explanation. That records the appeal and moves the item to `under_review`. The original decision stays in the log, nothing is re-scored automatically, and a person has to look at it. This only works if the writer knows the appeal exists, has kept their `content_id`, and feels able to argue in a language they're less sure of. Those are hardest for exactly the writers most likely to be flagged.
+
+**What this decides.** With the current numbers, an honest writer can land well inside "high-confidence AI" with no warning. That pushes my thresholds and rule in three directions:
+- `AI_THRESHOLD` has to sit high enough that plainly written human text lands in **unsure**, not AI. I'll test this in Milestone 4 with a plain human paragraph as a calibration input.
+- The combining rule shouldn't let two signals with the same blind spot add up to certainty.
+- The AI label, and the unsure label most of all, should tell the reader how to appeal and should never state authorship as fact.
+
+### The two endpoints
+
+The contract every other piece has to keep. All bodies are JSON. Every error looks the same, `{"error": "<code>", "message": "<sentence for a person>"}`, which matches the 429 response already in `app.py`. Bad input always gets a 4xx, never a 500.
+
+#### `POST /submit`
+
+**In**
+
+| Field | Type | Required | Rule |
+|---|---|---|---|
+| `text` | string | yes | The writing to check. At least 50 characters after trimming whitespace. At most 20,000 characters. |
+| `creator_id` | string | yes | Who submitted it. Not empty. Used for the log, appeals, and (in unit 8) rate limiting. |
+
+Only the first ~400 tokens (about 300 words) reach the model signal (`DETECTOR_MAX_TOKENS`). The style signal reads the whole text.
+
+**Out: `200 OK`**
+
+| Field | Type | Meaning |
+|---|---|---|
+| `content_id` | string | New UUID for this submission. The writer needs it to appeal. |
+| `creator_id` | string | Echoed back from the request. |
+| `guess` | string | `"human"`, `"unsure"`, or `"ai"`. |
+| `label` | string | The exact sentence the reader sees. |
+| `confidence` | float 0–1 | How far the combined score sits from the 0.5 midpoint: `abs(combined_score − 0.5) × 2`. Near 0 means the signals give no clear answer. Near 1 means a strong lean one way. |
+| `combined_score` | float 0–1 | Output of `combine_signals`. Higher means more AI-like. |
+| `model_score` | float 0–1 | Signal one. Higher means more AI-like. Required: unit 8's tools read it. |
+| `style_score` | float 0–1 | Signal two. Higher means more AI-like. Required: unit 8's tools read it. |
+| `status` | string | Always `"decided"` on a new submission. |
+
+**Errors**
+
+| Status | `error` | When |
+|---|---|---|
+| 400 | `invalid_json` | The body isn't a JSON object. |
+| 400 | `missing_text` | `text` is absent, not a string, or empty after trimming. |
+| 400 | `text_too_short` | Under 50 characters. Too little to score honestly, and the detector refuses under 3 tokens. |
+| 413 | `text_too_long` | Over 20,000 characters. |
+| 400 | `missing_creator_id` | `creator_id` is absent, not a string, or empty. |
+| 429 | `rate_limited` | Unit 8, once limiting is on. Already handled in `app.py`. |
+| 503 | `detector_unavailable` | The model couldn't load (`DetectorUnavailable`). Nothing is logged as a decision. |
+
+#### `POST /appeal`
+
+**In**
+
+| Field | Type | Required | Rule |
+|---|---|---|---|
+| `content_id` | string | yes | Must match a submission already in the log (`audit.entries_for`). |
+| `reasoning` | string | yes | The writer's explanation, in their own words. Not empty. At most 5,000 characters. |
+
+The request doesn't take a `creator_id`. The service copies it from the original decision in the log, so the appeal is always tied to the person who submitted.
+
+**Out: `200 OK`**
+
+| Field | Type | Meaning |
+|---|---|---|
+| `content_id` | string | Echoed back. |
+| `status` | string | `"under_review"`. |
+| `message` | string | Plain confirmation to the writer that a person will look at it. Nothing is re-scored automatically. |
+
+An appeal on an item already under review is accepted and logged again. The log is append-only, so every appeal is kept.
+
+**Errors**
+
+| Status | `error` | When |
+|---|---|---|
+| 400 | `invalid_json` | The body isn't a JSON object. |
+| 400 | `missing_content_id` | `content_id` is absent or empty. |
+| 400 | `missing_reasoning` | `reasoning` is absent, empty, or over 5,000 characters. |
+| 404 | `unknown_content_id` | No submission with that ID in the log. Says so plainly instead of failing silently. |
 
 
 ---
@@ -53,19 +158,22 @@
 
 ### Signal one — the model signal
 
-**What it measures:**
+**What it measures:** How predictable the text is to a language model. `detector.py` runs GPT-2 locally and computes the text's **perplexity**, meaning how surprised the model is by each next word on average. It then maps that onto 0–1, where low perplexity (very predictable) means a high, AI-like score. A perplexity of about 45 scores 0.5.
 
-**Why that might differ between human and AI writing:**
+**Why that might differ between human and AI writing:** A language model writes by repeatedly picking a likely next word, so text a model produced tends to be text a model finds easy to predict. Human writing wanders more, with odd word choices, sudden turns, and specific details where a model would use typical ones. All of that raises perplexity. AI text also leans on the same safe choices again and again: stock transitions like "It is important to note" or "In conclusion," and a familiar set of words like *delve*, *testament*, and *intricate*. Phrases a model uses often are, by definition, phrases a model predicts easily.
 
-**What it can't see:**
+**What it can't see:** Who actually wrote the text. Predictability is not authorship. What this signal really rewards is **common words in short, ordinary sentences**, and many real people write that way: someone writing in a second language and sticking to words they're sure of, a younger writer, or anyone writing plainly on purpose. Their honest writing can score as AI-like as machine text. It also fails the other way. Dense, ornate prose full of rare words scores as *human* because rare words are hard to predict, so an AI asked to write in an unusual style, or AI text with a few uncommon words swapped in, can slip through. The same goes for stock phrases. Students are taught to write "In conclusion" and to follow a five-paragraph essay outline, and second-language writers often rely on set phrases because they know those phrases are correct. Formulaic does not mean machine-written. The writers this signal is most likely to wrongly accuse are the ones with the least room to argue back.
 
 ### Signal two — the style signal
 
-**What it measures:**
+**What it measures:** The *shape* of the text, without reading what it says. `stylometry.py` combines three measures into one 0–1 score where higher means more AI-like:
+- **Sentence length spread:** do sentence lengths vary, or are they all about the same?
+- **Type-token ratio:** what fraction of the words are distinct, or how much the vocabulary repeats.
+- **Punctuation density:** how much punctuation there is, and how varied it is.
 
-**Why that might differ between human and AI writing:**
+**Why that might differ between human and AI writing:** Generated prose tends toward even, medium-length sentences, a narrower vocabulary, and tidy, standard punctuation, because "most likely next word" produces average-shaped text. Human writing is lumpier: a three-word sentence next to a forty-word one, a favorite word repeated, a dash or parenthesis or exclamation mark where it feels right. Published linguistic comparisons back this up: human texts show more variation in sentence length and sentence structure, while AI output leans formal and evenly structured, with more dense, noun-heavy phrasing.
 
-**What it can't see:**
+**What it can't see:** Meaning. This signal cannot read. It has no idea what the text says or who wrote it, so anything that changes the shape without changing the substance moves the score. Examples are adding typos, splitting or merging sentences, adding dashes and semicolons, or pasting in a quotation. That makes it cheap to fool on purpose: lightly editing AI text this way can push it toward "human." It also misjudges people whose natural style is even and tidy, such as a careful writer following a style guide or someone writing a short, structured answer. Their text has the regular shape this signal reads as AI-like. Short texts are another weak point, because with only a few sentences the three measures are mostly noise. The popular rule that "quirks and flaws mean human" is exactly this weakness. It rewards anyone who adds a few typos, and it penalizes the careful human writer who fixed theirs. Finally, a lot of what really separates human writing is out of reach for both signals because it depends on meaning: emotional depth, sarcasm, a specific remembered detail, an unresolved thought, or whether the reasoning holds up.
 
 ### The combining rule
 
