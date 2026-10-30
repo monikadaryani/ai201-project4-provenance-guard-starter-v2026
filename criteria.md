@@ -42,63 +42,49 @@ Two things worth knowing before you pick numbers:
   a **miss**.
 
 ---
-## 1.
+## 1. False positives: my own writing is not called AI
 
-<!-- Your criterion. It must name a number. -->
+Of 10 pieces I wrote myself, at least 4 of them written plainly, **at most 1** gets the high-confidence AI label. This has to hold in **each** of the three trials, not on average.
 
+**"Written plainly" means both of these are true for the piece**, measured with the `sentences()` and `words()` helpers in `stylometry.py`:
+- **Average sentence length is 14 words or fewer** (number of words ÷ number of sentences).
+- **Average word length is 4.5 letters or fewer** (total letters in all words ÷ number of words).
 
+Each piece is at least 5 sentences long, and I check the two numbers before it goes in `scenarios.py`, so whether a piece counts as plain is decided before I see its score.
 
-**Why this target:**
-
-
-
----
-
-## 2.
-
-<!-- Your criterion. -->
-
-
-
-**Why this target:**
-
-
+**Why this target:** A wrong accusation is the expensive mistake. It costs a real writer their reputation, while a missed piece of AI text costs the site a little. My false-positive trace showed that plain, careful writing is exactly what both signals read as AI, so I'm loading the test with that kind of writing on purpose instead of my most "human-sounding" work. One in ten is still a real person accused, so it's the most I'll accept, and it has to hold every time because the model signal can score the same text differently on different runs.
 
 ---
 
-## 3.
+## 2. Score spread: AI and human text land clearly apart
 
-<!-- Your criterion. -->
+Across 5 clearly AI-generated texts and 5 clearly human-written texts, the average `combined_score` of the AI group is **at least 0.30 higher** than the average of the human group, in each of the three trials.
 
-
-
-**Why this target:**
-
-
+**Why this target:** If the two groups score close together, the labels are a coin toss with a confident voice. 0.30 is the width of my "unsure" band (0.35 to 0.65), so a gap that size means the clear cases sit on opposite sides of it instead of piling up in the middle. If I can't get that much separation on the easy cases, the thresholds have nothing to stand on.
 
 ---
 
-## 4.
+## 3. Label coverage: all three labels are reachable
 
-<!-- Your criterion. -->
+Out of 9 inputs (3 I expect to read as human, 3 borderline, 3 I expect to read as AI), **each of the three labels is produced at least once**, in each of the three trials.
 
-
-
-**Why this target:**
-
-
+**Why this target:** A label nobody can reach is a gap in my score ranges, and a reader would never see it. The unsure label matters most here: it's where honest writers who happen to write plainly should land instead of being accused. If borderline text never produces it, my thresholds are pushing everyone to one side.
 
 ---
 
-## 5.
+## 4. The appeal path: every appeal is recorded and changes status
 
-<!-- Your criterion. -->
+For **5 of 5** appeals on real `content_id`s, the response is 200 with `status: "under_review"`, the log gains exactly one appeal entry for that ID, and the original decision entry is still there unchanged. An appeal on a made-up `content_id` returns **404** with `unknown_content_id` in 1 of 1 tries.
 
+**Why this target:** The appeal is the only thing between a wrong accusation and nothing at all, so "usually works" isn't good enough. It has to work every time. The made-up ID check matters because an appeal that fails silently looks to the writer like it went through when it didn't. The original decision has to stay in the log so anyone reviewing can see what was decided and that it was challenged.
 
+---
 
-**Why this target:**
+## 5. Bad input: malformed requests get a clear error, not a crash
 
+Of 6 malformed `/submit` requests (empty text, whitespace-only text, missing `text` field, `text` set to null, `text` set to a number, and a 50,000-word text), **6 of 6** return a 4xx status with an `error` field, **0** return a 5xx, and `/ping` still answers afterwards. This has to hold in each of the three trials.
 
+**Why this target:** A crash on bad input is one of the most common real failures, and unit 8's attack set will send exactly these. A 500 tells the caller nothing and counts as BROKE in `run_attacks.py`. The error codes have to match the contract in my README, so a client can tell "your text is empty" apart from "the service is down". Checking `/ping` afterwards confirms one bad request didn't take the whole service down.
 
 ---
 
