@@ -30,8 +30,20 @@ from flask import Flask, jsonify, request
 
 import audit
 import config
+import detector
 
 app = Flask(__name__)
+
+# The bounds in the README's /submit contract. Under the minimum there's too
+# little for either signal to mean anything; over the maximum is someone
+# testing what breaks.
+MIN_TEXT_CHARS = 50
+MAX_TEXT_CHARS = 20_000
+
+
+def _error(code, message, status):
+    """Every error has the same shape as the 429 below: a code and a sentence."""
+    return jsonify({"error": code, "message": message}), status
 
 
 # ── Rate limiting — UNIT 8 ────────────────────────────────────────────────────
@@ -199,17 +211,63 @@ def submit():
     what should this do when `text` is missing, empty, or enormous? A crash on
     a malformed input is one of the most common real failures there is.
     """
-    payload = request.get_json(silent=True) or {}
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return _error("invalid_json", "Send a JSON object with `text` and `creator_id`.", 400)
 
-    # TODO: delete this and build the route.
+    text = payload.get("text")
+    creator_id = payload.get("creator_id")
+
+    if not isinstance(text, str) or not text.strip():
+        return _error("missing_text", "There's no text to check. Send it in the `text` field.", 400)
+    text = text.strip()
+    if len(text) < MIN_TEXT_CHARS:
+        return _error("text_too_short",
+                      f"The text is too short to judge fairly. Send at least {MIN_TEXT_CHARS} characters.", 400)
+    if len(text) > MAX_TEXT_CHARS:
+        return _error("text_too_long",
+                      f"The text is too long. Send at most {MAX_TEXT_CHARS:,} characters.", 413)
+    if not isinstance(creator_id, str) or not creator_id.strip():
+        return _error("missing_creator_id", "Say who wrote this in the `creator_id` field.", 400)
+    creator_id = creator_id.strip()
+
+    try:
+        model_score = detector.model_signal(text)
+    except detector.DetectorUnavailable:
+        return _error("detector_unavailable",
+                      "The checker isn't available right now. Nothing was recorded; try again later.", 503)
+    except ValueError:
+        # The detector refuses text under 3 tokens. MIN_TEXT_CHARS should stop
+        # that first, but a long run of symbols can still get here.
+        return _error("text_too_short", "The text is too short to judge fairly.", 400)
+
+    content_id = str(uuid.uuid4())
+
+    # Milestone 3: one signal. Style, combined score, confidence and the real
+    # label arrive in Milestones 4 and 5.
+    guess = "unsure"
+    label = "PLACEHOLDER label"
+    confidence = 0.0
+
+    audit.log_decision(
+        content_id=content_id,
+        creator_id=creator_id,
+        guess=guess,
+        model_score=model_score,
+        label=label,
+    )
+
     return jsonify({
-        "error": "not_implemented",
-        "message": "POST /submit isn't built yet — see the TODO in app.py.",
-        "you_sent": {
-            "text_length": len(payload.get("text", "")),
-            "creator_id": payload.get("creator_id"),
-        },
-    }), 501
+        "content_id": content_id,
+        "creator_id": creator_id,
+        "guess": guess,
+        "label": label,
+        "confidence": confidence,
+        "combined_score": None,
+        "model_score": model_score,
+        "style_score": None,
+        "status": "decided",
+    })
 
 
 @app.post("/appeal")

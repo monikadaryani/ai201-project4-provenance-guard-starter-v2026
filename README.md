@@ -232,12 +232,28 @@ An appeal on an item already under review is accepted and logged again. The log 
 ```bash
 $ curl -X POST http://127.0.0.1:5000/submit \
   -H "Content-Type: application/json" \
-  -d '{"text": "...", "creator_id": "..."}'
+  -d '{"text": "Hi! This is Monika and I am so glad to be here. I just want to see how this app flags this text.", "creator_id": "monika"}'
 ```
 
 ```json
-
+{
+  "combined_score": null,
+  "confidence": 0.0,
+  "content_id": "ea344e42-3540-44f0-9026-156c3673a599",
+  "creator_id": "monika",
+  "guess": "unsure",
+  "label": "PLACEHOLDER label",
+  "model_score": 0.5545,
+  "status": "decided",
+  "style_score": null
+}
 ```
+
+<!-- Milestone 3 run: only the model signal is wired in. style_score and
+     combined_score are null and guess/label/confidence are placeholders until
+     Milestones 4 and 5 — re-run and replace this once they're built. -->
+
+
 
 **An appeal**
 
@@ -258,8 +274,38 @@ $ curl "http://127.0.0.1:5000/log?limit=3"
 ```
 
 ```json
-
+{
+  "count": 2,
+  "entries": [
+    {
+      "combined_score": null,
+      "content_id": "61f9d0a1-4cc4-485a-b514-13eb3b8aff61",
+      "creator_id": "monika",
+      "guess": "unsure",
+      "label": "PLACEHOLDER label",
+      "model_score": 0.5545,
+      "status": "decided",
+      "style_score": null,
+      "timestamp": "2026-10-30T21:01:51+00:00"
+    },
+    {
+      "combined_score": null,
+      "content_id": "ea344e42-3540-44f0-9026-156c3673a599",
+      "creator_id": "monika",
+      "guess": "unsure",
+      "label": "PLACEHOLDER label",
+      "model_score": 0.5545,
+      "status": "decided",
+      "style_score": null,
+      "timestamp": "2026-10-30T21:03:33+00:00"
+    }
+  ]
+}
 ```
+
+<!-- Milestone 3 run, before /appeal exists. The second entry is the
+     submission above (same content_id). Re-run after the appeal so this
+     shows the decision followed by its under_review entry. -->
 
 ---
 
