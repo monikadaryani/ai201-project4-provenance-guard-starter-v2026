@@ -31,6 +31,7 @@ from flask import Flask, jsonify, request
 import audit
 import config
 import detector
+import phrases
 import scoring
 import stylometry
 
@@ -246,7 +247,8 @@ def submit():
         return _error("text_too_short", "The text is too short to judge fairly.", 400)
 
     style_score = stylometry.style_signal(text)
-    combined_score = scoring.combine_signals(model_score, style_score)
+    phrase_score = phrases.phrase_signal(text)
+    combined_score = scoring.combine_signals(model_score, style_score, phrase_score)
 
     guess, label = scoring.score_to_label(combined_score)
     confidence = scoring.confidence(combined_score)
@@ -261,6 +263,7 @@ def submit():
         style_score=style_score,
         combined_score=combined_score,
         label=label,
+        phrase_score=phrase_score,
     )
 
     return jsonify({
@@ -272,6 +275,7 @@ def submit():
         "combined_score": combined_score,
         "model_score": model_score,
         "style_score": style_score,
+        "phrase_score": phrase_score,
         "status": "decided",
     })
 
@@ -334,6 +338,41 @@ def appeal():
         "status": "under_review",
         "message": "Thanks for telling us. A person will review this result. "
                    "Nothing changes automatically in the meantime.",
+    })
+
+
+@app.get("/content/<content_id>")
+def content_status(content_id):
+    """
+    One item's current status — the stretch goal.
+
+        curl http://127.0.0.1:5000/content/<content_id>
+
+    Built from the audit log, so it can't disagree with it: the original
+    decision, every appeal after it, and the status of the most recent entry.
+    """
+    entries = audit.entries_for(content_id)
+    decisions = [e for e in entries if e.get("event") != "appeal"]
+    if not decisions:
+        return _error("unknown_content_id",
+                      "We couldn't find a submission with that ID. Check it matches the one on your result.", 404)
+
+    decision = decisions[0]
+    appeals = [
+        {"timestamp": e["timestamp"], "reasoning": e.get("reasoning")}
+        for e in entries if e.get("event") == "appeal"
+    ]
+    return jsonify({
+        "content_id": content_id,
+        "status": entries[-1]["status"],
+        "submitted_at": decision["timestamp"],
+        "guess": decision.get("guess"),
+        "label": decision.get("label"),
+        "model_score": decision.get("model_score"),
+        "style_score": decision.get("style_score"),
+        "phrase_score": decision.get("phrase_score"),
+        "combined_score": decision.get("combined_score"),
+        "appeals": appeals,
     })
 
 

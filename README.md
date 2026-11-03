@@ -45,9 +45,9 @@
 
 **3. The model signal (`detector.model_signal` in `detector.py`).** The text is run through GPT-2 on the local machine to measure its perplexity, meaning how predictable the model finds each next word. That perplexity is squashed onto a 0–1 scale, where low perplexity means a high score. **It adds** `model_score`, a number from 0 to 1 where higher means "reads more like AI." This step judges the words themselves, not the shape of the text.
 
-**4. The style signal (`stylometry.style_signal` in `stylometry.py`).** The same text is measured as shape only, without reading its meaning. It takes four measures: how much sentence lengths vary, how often vocabulary repeats, how much human-leaning punctuation there is, and how often em dashes and colons appear. Each is placed on a 0–1 "AI-ness" scale between a typical-human and a typical-AI value, and they're averaged with weights set by calibration (sentence spread counts most). **It adds** `style_score`, a second 0–1 score where higher means "more like AI." It comes from a completely different kind of evidence than step 3.
+**4. The style signal (`stylometry.style_signal` in `stylometry.py`).** The same text is measured as shape only, without reading its meaning. It takes four measures: how much sentence lengths vary, how often vocabulary repeats, how much human-leaning punctuation there is, and how often em dashes and colons appear. Each is placed on a 0–1 "AI-ness" scale between a typical-human and a typical-AI value, and they're averaged with weights set by calibration (sentence spread counts most). Alongside it, `phrases.phrase_signal` counts stock AI phrases and adds a `phrase_score` (stretch goal). **It adds** `style_score`, a second 0–1 score where higher means "more like AI." It comes from a completely different kind of evidence than step 3.
 
-**5. The two signals are combined (`scoring.combine_signals` in `scoring.py`).** The two scores are averaged with equal weight. If either signal leans human (below 0.5), the result is capped at 0.64, just under the AI threshold, so a disagreement can produce "unsure" but never an AI label. The full rule is under *Signals and Scoring* below. **It adds** `combined_score`, one number from 0 (confidently human) to 1 (confidently AI). Every later decision is based on this number.
+**5. The two signals are combined (`scoring.combine_signals` in `scoring.py`).** The two scores are averaged with equal weight, and the phrase score can nudge that average toward AI by up to 20% of the distance left. If either the model or the style signal leans human (below 0.5), the result is capped at 0.64, just under the AI threshold, so a disagreement can produce "unsure" but never an AI label. The full rule is under *Signals and Scoring* below. **It adds** `combined_score`, one number from 0 (confidently human) to 1 (confidently AI). Every later decision is based on this number.
 
 **6. The score becomes words (`scoring.score_to_label` in `scoring.py`).** The combined score is compared against two thresholds in `config.py`, `HUMAN_THRESHOLD` and `AI_THRESHOLD`. The comparison puts it in one of three bands: high-confidence human (0.35 or below), unsure, or high-confidence AI (0.65 or above). **It adds** a `guess` (`human` / `unsure` / `ai`) for the machine, a `label`, which is the plain-language sentence a reader actually sees in place of a number (the exact wording is under *Label Variants*), and a `confidence`, which says how far the score sits from the 0.5 midpoint.
 
@@ -76,7 +76,7 @@
 - The combining rule shouldn't let two signals with the same blind spot add up to certainty.
 - The AI label, and the unsure label most of all, should tell the reader how to appeal and should never state authorship as fact.
 
-### The two endpoints
+### The endpoints
 
 The contract every other piece has to keep. All bodies are JSON. Every error looks the same, `{"error": "<code>", "message": "<sentence for a person>"}`, which matches the 429 response already in `app.py`. Bad input always gets a 4xx, never a 500.
 
@@ -103,6 +103,7 @@ Only the first ~400 tokens (about 300 words) reach the model signal (`DETECTOR_M
 | `combined_score` | float 0–1 | Output of `combine_signals`. Higher means more AI-like. |
 | `model_score` | float 0–1 | Signal one. Higher means more AI-like. Required: unit 8's tools read it. |
 | `style_score` | float 0–1 | Signal two. Higher means more AI-like. Required: unit 8's tools read it. |
+| `phrase_score` | float 0–1 | Signal three (stretch goal). Stock AI phrases per 100 words, scaled. Higher means more AI-like. |
 | `status` | string | Always `"decided"` on a new submission. |
 
 **Errors**
@@ -147,6 +148,14 @@ An appeal on an item already under review is accepted and logged again. The log 
 | 400 | `missing_reasoning` | `reasoning` is absent, empty, or over 5,000 characters. |
 | 404 | `unknown_content_id` | No submission with that ID in the log. Says so plainly instead of failing silently. |
 
+#### `GET /content/<content_id>` (stretch goal)
+
+**In:** the `content_id` in the URL. No body.
+
+**Out: `200 OK`:** `content_id`, `status` (from the most recent log entry: `decided`, or `under_review` once appealed), `submitted_at`, the original `guess`, `label`, `model_score`, `style_score`, `phrase_score` and `combined_score`, and `appeals`, a list of `{timestamp, reasoning}` that's empty if there are none. Everything comes from the audit log, so it can't disagree with it. `phrase_score` is `null` for items scored before the phrase signal existed.
+
+**Errors:** 404 `unknown_content_id` if no submission has that ID.
+
 
 ---
 
@@ -178,6 +187,21 @@ An appeal on an item already under review is accepted and logged again. The log 
 
 **What it can't see:** Meaning. This signal cannot read. It has no idea what the text says or who wrote it, so anything that changes the shape without changing the substance moves the score. Examples are adding typos, splitting or merging sentences, adding dashes and semicolons, or pasting in a quotation. That makes it cheap to fool on purpose: lightly editing AI text this way can push it toward "human." It also misjudges people whose natural style is even and tidy, such as a careful writer following a style guide or someone writing a short, structured answer. Their text has the regular shape this signal reads as AI-like. Short texts are another weak point, because with only a few sentences these measures are mostly noise. The dash and colon rate also can't tell a chat model from a person whose phone or word processor turns `--` into `—` automatically. The popular rule that "quirks and flaws mean human" is exactly this weakness. It rewards anyone who adds a few typos, and it penalizes the careful human writer who fixed theirs. Finally, a lot of what really separates human writing is out of reach for both signals because it depends on meaning: emotional depth, sarcasm, a specific remembered detail, an unresolved thought, or whether the reasoning holds up.
 
+### Signal three — the phrase signal (stretch goal)
+
+**What it measures:** Stock phrases and favourite words that chat models fall back on, counted per 100 words. `phrases.py` matches a list of 28 patterns, such as "it is important to", "in today's fast-paced", "one of the most important", "ultimately,", "additionally,", "a testament to", "delve" and "plays a crucial role". Zero hits scores 0. Two or more per 100 words scores 1. Higher means more AI-like.
+
+**Why that might differ between human and AI writing:** A model tuned to sound helpful and polished reaches for the same safe transitions and impressive-sounding words again and again. On my calibration inputs, both versions of the AI essay had five or six stock phrases in about 250 words. My abstract, my journal entry and my short messages had none.
+
+**What it can't see:** Anything not on its list. It's the easiest of the three to fool: delete or swap the phrases and it reads 0. The list also ages as new models pick up new habits. And people use these phrases too. Students are taught "In conclusion" and "Additionally", and second-language writers lean on set phrases because they know they're correct. That's the same writer my false-positive trace follows.
+
+**How the three are weighted against each other:** Model and style are the two real votes, averaged with equal weight. The phrase signal is not a third vote in that average. It's a **one-way nudge** applied after it: it moves the score toward 1 by at most 20% of the distance left (`WEIGHT_PHRASE_SIGNAL = 0.2`).
+- **Why it can only push toward AI:** a phrase score of 0 is weak evidence of anything, because plenty of AI text has no stock phrases. Counting 0 as "human" would quietly lower every score and undo my calibration.
+- **Why it's capped at 20%:** it's the easiest signal to fool and the one most likely to catch a formulaic student.
+- **Why it has no say in the split rule:** the AI label still needs both model and style to lean AI, so stock phrases alone can never get a writer accused. The most they can do is move a text that both main signals already lean AI on a little further.
+
+Effect on my inputs: every human and unsure result is unchanged, because none of my writing has stock phrases. The AI essay moved from 0.8021 to 0.8417, and the edited AI essay from 0.7846 to 0.8274.
+
 ### Calibration
 
 Four inputs, each run through `detector.model_signal` and the `stylometry.py` measures. Each style measure shows its raw value, then its 0–1 AI-ness against the anchors in `stylometry.ANCHORS`. Higher model and style scores mean more AI-like.
@@ -207,7 +231,7 @@ So I moved the weights to **spread 0.60, vocabulary 0.10, punctuation 0.15, dash
 <!-- Write the rule in words, then give the numbers. What happens when the two
      signals disagree? -->
 
-**The rule:** Average the two signals with equal weight. Then apply one rule about disagreement: **the AI label needs both signals to lean AI.** If either signal says the text leans human (scores below 0.5), the combined score is capped just under the AI threshold, so the worst a split can produce is "unsure", never "high-confidence AI". When the two agree, the average stands as it is.
+**The rule:** Average the two signals with equal weight. Then apply one rule about disagreement: **the AI label needs both signals to lean AI.** If either signal says the text leans human (scores below 0.5), the combined score is capped just under the AI threshold, so the worst a split can produce is "unsure", never "high-confidence AI". When the two agree, the average stands as it is. (Stretch goal: before the cap, the phrase signal can nudge the average toward AI by up to 20% of the distance left. See *Signal three* above.)
 
 Why equal weights: each signal has a different blind spot. The model signal is fooled by plain, common phrasing, and the style signal by surface edits like splitting sentences. On my calibration inputs neither was more trustworthy than the other, so I had no evidence to favour one.
 
@@ -219,6 +243,7 @@ Why the disagreement rule: a wrong accusation costs a writer much more than a mi
 |---|---|---|
 | Model signal weight | 0.5 | `WEIGHT_MODEL_SIGNAL` |
 | Style signal weight | 0.5 | `WEIGHT_STYLE_SIGNAL` |
+| Phrase signal nudge (stretch) | up to 20% of the distance to 1 | `WEIGHT_PHRASE_SIGNAL` |
 | A signal "leans AI" at | 0.5 or above | `SIGNAL_LEANS_AI` |
 | Cap when the signals split | 0.64 (`AI_THRESHOLD` − 0.01) | `SPLIT_CAP` |
 | High-confidence human | combined score 0.35 or below | `HUMAN_THRESHOLD` |
@@ -237,7 +262,7 @@ Both signals on the same pieces, with the calibrated style weights and my combin
 
 | Piece | Who wrote it | Model | Style | Gap | Combined | Label |
 |---|---|---|---|---|---|---|
-| Time-management essay | Claude (AI), unedited | 0.887 | 0.718 | 0.17 | 0.802 | AI |
+| Time-management essay | Claude (AI), unedited | 0.887 | 0.718 | 0.17 | 0.842 (0.802 before the phrase signal) | AI |
 | Review-hijacking abstract | me, formal | 0.413 | 0.079 | 0.33 | 0.246 | human |
 | Journal entry (not reproduced) | me, plain | 0.396 | 0.197 | 0.20 | 0.296 | human |
 | "Hi! This is Monika and I'm so glad to be here. I just want to see how this app flags this text." | me, casual | **0.550** | **0.150** | **0.40** | **0.3499** | human, by a hair |
@@ -276,7 +301,7 @@ The score is the combined score from `scoring.py::combine_signals`. A score of e
 
 | Text | Model | Style | Combined | Label |
 |---|---|---|---|---|
-| Time-management essay (AI) | 0.8867 | 0.7175 | 0.8021 | high-confidence AI |
+| Time-management essay (AI) | 0.8867 | 0.7175 | 0.8417 (0.8021 before the phrase signal) | high-confidence AI |
 | My review-hijacking abstract | 0.4132 | 0.0785 | 0.2459 | high-confidence human |
 | "Hi! This is Monika and I **am** so glad to be here. I just want to see how this app flags this text." | 0.5545 | 0.1659 | 0.3602 | unsure |
 
@@ -395,6 +420,49 @@ $ curl "http://127.0.0.1:5000/log?limit=3"
 ```
 
 The last two entries are the submission above and its appeal: same `content_id`, the original decision still `decided` and untouched, and the appeal after it with status `under_review` and the writer's reasoning. The first entry is an earlier run of the same text, from my label tests. Same text, same scores.
+
+**Checking an item's status (stretch goal: `GET /content/<id>`)**
+
+The appealed submission above, looked up by its `content_id`. The status reads `under_review` and the appeal is listed. `phrase_score` is `null` because this item was scored before the phrase signal was added.
+
+```bash
+$ curl http://127.0.0.1:5000/content/3f21f8bd-0416-4b3d-b1db-004b3cd42a4a
+```
+
+```json
+{
+  "appeals": [
+    {
+      "reasoning": "I wrote this myself as a quick hello. It is short and casual, which is probably why the checker could not decide.",
+      "timestamp": "2026-11-03T22:58:06+00:00"
+    }
+  ],
+  "combined_score": 0.3602,
+  "content_id": "3f21f8bd-0416-4b3d-b1db-004b3cd42a4a",
+  "guess": "unsure",
+  "label": "We can't tell whether a person or an AI tool wrote this. The patterns we look for were mixed, and that happens with a lot of genuine human writing. This is not an accusation. If you wrote it yourself, you don't need to do anything.",
+  "model_score": 0.5545,
+  "phrase_score": null,
+  "status": "under_review",
+  "style_score": 0.1659,
+  "submitted_at": "2026-11-03T22:58:06+00:00"
+}
+```
+
+An ID that doesn't exist:
+
+```bash
+$ curl http://127.0.0.1:5000/content/not-a-real-id
+```
+
+```json
+{
+  "error": "unknown_content_id",
+  "message": "We couldn't find a submission with that ID. Check it matches the one on your result."
+}
+```
+
+(HTTP 404.)
 
 ---
 

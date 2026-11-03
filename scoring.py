@@ -37,7 +37,7 @@ LABEL_AI = (
 )
 
 
-def combine_signals(model_score: float, style_score: float) -> float:
+def combine_signals(model_score: float, style_score: float, phrase_score: float = 0.0) -> float:
     """
     Combine two 0–1 signals into one 0–1 score. ← TODO (Milestone 4)
 
@@ -75,11 +75,18 @@ def combine_signals(model_score: float, style_score: float) -> float:
     If either is below `SIGNAL_LEANS_AI`, the score is capped at `SPLIT_CAP`,
     just under `AI_THRESHOLD`, so a split lands in "unsure" at worst. One
     method thinking a person wrote it is enough not to accuse them.
+
+    **The third signal** (stretch goal, `phrases.phrase_signal`) is a one-way
+    nudge, applied before the cap: it moves the average toward 1.0 by at most
+    `WEIGHT_PHRASE_SIGNAL` of the distance left. 0 changes nothing. It has no
+    say in the split rule, so stock phrases alone can never earn the AI label.
     """
     score = (
         config.WEIGHT_MODEL_SIGNAL * model_score
         + config.WEIGHT_STYLE_SIGNAL * style_score
     ) / (config.WEIGHT_MODEL_SIGNAL + config.WEIGHT_STYLE_SIGNAL)
+
+    score += config.WEIGHT_PHRASE_SIGNAL * phrase_score * (1.0 - score)
 
     signals_split = min(model_score, style_score) < config.SIGNAL_LEANS_AI
     if signals_split:

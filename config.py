@@ -57,6 +57,12 @@ DETECTOR_MAX_TOKENS = 400
 WEIGHT_MODEL_SIGNAL = 0.5
 WEIGHT_STYLE_SIGNAL = 0.5
 
+# The third signal (phrases.py, stretch goal) isn't in the average. It's a
+# one-way nudge: it moves the score toward 1.0 by at most this share of the
+# distance left. A phrase score of 0 changes nothing, because plenty of AI
+# text uses no stock phrases at all.
+WEIGHT_PHRASE_SIGNAL = 0.2
+
 # The disagreement rule: the AI label needs BOTH signals to lean AI. A signal
 # "leans AI" at SIGNAL_LEANS_AI or above. If either is below it, the combined
 # score is capped at SPLIT_CAP — just under AI_THRESHOLD — so a split can reach
