@@ -51,12 +51,23 @@ def combine_signals(model_score: float, style_score: float) -> float:
 
     The weights in config.py are placeholders. Change them, or ignore them and
     write a different rule.
+
+    **My rule** (written in the README first): an equal-weight average, plus
+    one rule about disagreement — the AI label needs both signals to lean AI.
+    If either is below `SIGNAL_LEANS_AI`, the score is capped at `SPLIT_CAP`,
+    just under `AI_THRESHOLD`, so a split lands in "unsure" at worst. One
+    method thinking a person wrote it is enough not to accuse them.
     """
-    # TODO: replace this
-    return (
+    score = (
         config.WEIGHT_MODEL_SIGNAL * model_score
         + config.WEIGHT_STYLE_SIGNAL * style_score
-    )
+    ) / (config.WEIGHT_MODEL_SIGNAL + config.WEIGHT_STYLE_SIGNAL)
+
+    signals_split = min(model_score, style_score) < config.SIGNAL_LEANS_AI
+    if signals_split:
+        score = min(score, config.SPLIT_CAP)
+
+    return round(score, 4)
 
 
 def score_to_label(score: float) -> tuple[str, str]:

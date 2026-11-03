@@ -31,6 +31,8 @@ from flask import Flask, jsonify, request
 import audit
 import config
 import detector
+import scoring
+import stylometry
 
 app = Flask(__name__)
 
@@ -241,19 +243,25 @@ def submit():
         # that first, but a long run of symbols can still get here.
         return _error("text_too_short", "The text is too short to judge fairly.", 400)
 
+    style_score = stylometry.style_signal(text)
+    combined_score = scoring.combine_signals(model_score, style_score)
     content_id = str(uuid.uuid4())
 
-    # Milestone 3: one signal. Style, combined score, confidence and the real
-    # label arrive in Milestones 4 and 5.
+    # Milestone 4: both signals and the combined score are real. The guess,
+    # label and confidence arrive with score_to_label in Milestone 5.
     guess = "unsure"
     label = "PLACEHOLDER label"
     confidence = 0.0
 
+    # Both signal scores go in the log beside the combined one: next unit,
+    # a wrong label can only be traced to the signal that caused it from here.
     audit.log_decision(
         content_id=content_id,
         creator_id=creator_id,
         guess=guess,
         model_score=model_score,
+        style_score=style_score,
+        combined_score=combined_score,
         label=label,
     )
 
@@ -263,9 +271,9 @@ def submit():
         "guess": guess,
         "label": label,
         "confidence": confidence,
-        "combined_score": None,
+        "combined_score": combined_score,
         "model_score": model_score,
-        "style_score": None,
+        "style_score": style_score,
         "status": "decided",
     })
 

@@ -166,23 +166,63 @@ An appeal on an item already under review is accepted and logged again. The log 
 
 ### Signal two — the style signal
 
-**What it measures:** The *shape* of the text, without reading what it says. `stylometry.py` combines three measures into one 0–1 score where higher means more AI-like:
-- **Sentence length spread:** do sentence lengths vary, or are they all about the same?
-- **Type-token ratio:** what fraction of the words are distinct, or how much the vocabulary repeats.
-- **Punctuation density:** how much punctuation there is, and how varied it is.
+**What it measures:** The *shape* of the text, without reading what it says. `stylometry.py` combines four measures into one 0–1 score where higher means more AI-like:
+- **Sentence length spread:** do sentence lengths vary, or are they all about the same? Higher means more human.
+- **Type-token ratio:** what fraction of the words are distinct, or how much the vocabulary repeats. Measured over a sliding 50-word window so long and short texts compare fairly. Higher means more human.
+- **Punctuation density:** commas, semicolons, parentheses, `?`, `!` and typed dashes (`-`, `--`) per word. Higher means more human.
+- **Dash and colon rate:** em dashes (—), en dashes (–) and colons per word. These are kept separate because they point the other way: recent chat models overuse them. Higher means more AI.
 
 **Why that might differ between human and AI writing:** Generated prose tends toward even, medium-length sentences, a narrower vocabulary, and tidy, standard punctuation, because "most likely next word" produces average-shaped text. Human writing is lumpier: a three-word sentence next to a forty-word one, a favorite word repeated, a dash or parenthesis or exclamation mark where it feels right. Published linguistic comparisons back this up: human texts show more variation in sentence length and sentence structure, while AI output leans formal and evenly structured, with more dense, noun-heavy phrasing.
 
-**What it can't see:** Meaning. This signal cannot read. It has no idea what the text says or who wrote it, so anything that changes the shape without changing the substance moves the score. Examples are adding typos, splitting or merging sentences, adding dashes and semicolons, or pasting in a quotation. That makes it cheap to fool on purpose: lightly editing AI text this way can push it toward "human." It also misjudges people whose natural style is even and tidy, such as a careful writer following a style guide or someone writing a short, structured answer. Their text has the regular shape this signal reads as AI-like. Short texts are another weak point, because with only a few sentences the three measures are mostly noise. The popular rule that "quirks and flaws mean human" is exactly this weakness. It rewards anyone who adds a few typos, and it penalizes the careful human writer who fixed theirs. Finally, a lot of what really separates human writing is out of reach for both signals because it depends on meaning: emotional depth, sarcasm, a specific remembered detail, an unresolved thought, or whether the reasoning holds up.
+**What it can't see:** Meaning. This signal cannot read. It has no idea what the text says or who wrote it, so anything that changes the shape without changing the substance moves the score. Examples are adding typos, splitting or merging sentences, adding dashes and semicolons, or pasting in a quotation. That makes it cheap to fool on purpose: lightly editing AI text this way can push it toward "human." It also misjudges people whose natural style is even and tidy, such as a careful writer following a style guide or someone writing a short, structured answer. Their text has the regular shape this signal reads as AI-like. Short texts are another weak point, because with only a few sentences these measures are mostly noise. The dash and colon rate also can't tell a chat model from a person whose phone or word processor turns `--` into `—` automatically. The popular rule that "quirks and flaws mean human" is exactly this weakness. It rewards anyone who adds a few typos, and it penalizes the careful human writer who fixed theirs. Finally, a lot of what really separates human writing is out of reach for both signals because it depends on meaning: emotional depth, sarcasm, a specific remembered detail, an unresolved thought, or whether the reasoning holds up.
+
+### Calibration
+
+Four inputs, each run through `detector.model_signal` and the `stylometry.py` measures. Each style measure shows its raw value, then its 0–1 AI-ness against the anchors in `stylometry.ANCHORS`. Higher model and style scores mean more AI-like.
+
+| Input | Words | Words/sentence | Model | Spread | Vocabulary | Punctuation | Dash/colon | Style |
+|---|---|---|---|---|---|---|---|---|
+| Clearly AI (written by Claude, unedited) | 251 | 15.7 | **0.887** | 0.238 → 1.00 | 0.850 → 0.00 | 0.072 → 0.78 | 0.000 → 0.00 | **0.718** |
+| Lightly edited AI (the same text, edited by me) | 252 | 15.8 | **0.863** | 0.227 → 1.00 | 0.851 → 0.00 | 0.079 → 0.71 | 0.000 → 0.00 | **0.706** |
+| Clearly human (my own paper abstract, formal) | 171 | 34.2 | **0.413** | 0.941 → 0.00 | 0.850 → 0.00 | 0.117 → 0.33 | 0.006 → 0.19 | **0.079** |
+| Plain human (a personal journal entry of mine, not reproduced) | 236 | 12.4 | **0.398** | 0.633 → 0.04 | 0.818 → 0.21 | 0.025 → 1.00 | 0.000 → 0.00 | **0.197** |
+
+The plain human input meets criterion 1's definition of "written plainly": 12.4 words per sentence and 4.19 letters per word.
+
+**What I changed because of it.** The style weights started at spread 0.35, vocabulary 0.25, punctuation 0.25, dash/colon 0.15. With those, the AI texts only reached 0.53–0.55, and plain human writing scored 0.32. Calibration showed:
+- **Sentence spread** was the only measure that ranked all four inputs correctly.
+- **Vocabulary** (type-token ratio) scored the AI text and my abstract the same, 0.85. It gave no information.
+- **Punctuation** scored my plain writing as *more* AI-like than the AI text (0.025 vs 0.072). Moving the anchors can't fix that, because plain human writing sits on the far side of the AI text. It's backwards for exactly the writer criterion 1 protects.
+
+So I moved the weights to **spread 0.60, vocabulary 0.10, punctuation 0.15, dash/colon 0.15**. I kept the weak measures at a small weight instead of dropping them, so a single trick like splitting sentences can't move the whole style score by itself. The anchors and the model signal's midpoint (perplexity 45) are unchanged.
+
+**What the light edit showed.** Changing a few words, adding a typo ("truely"), a paragraph break and an exclamation mark moved the style score by 0.01 and the model score by 0.02. Word-level edits don't change the shape of the text. An edit that rewrote sentence lengths would.
+
+**Limits.** These are four inputs, and two of them are short. The plain human text has typos and unusual phrasing, which raise perplexity and help it read as human to the model signal. A cleanly typed plain text may score higher, and that's the case to watch in unit 8.
 
 ### The combining rule
 
 <!-- Write the rule in words, then give the numbers. What happens when the two
      signals disagree? -->
 
-**The rule:**
+**The rule:** Average the two signals with equal weight. Then apply one rule about disagreement: **the AI label needs both signals to lean AI.** If either signal says the text leans human (scores below 0.5), the combined score is capped just under the AI threshold, so the worst a split can produce is "unsure", never "high-confidence AI". When the two agree, the average stands as it is.
+
+Why equal weights: each signal has a different blind spot. The model signal is fooled by plain, common phrasing, and the style signal by surface edits like splitting sentences. On my calibration inputs neither was more trustworthy than the other, so I had no evidence to favour one.
+
+Why the disagreement rule: a wrong accusation costs a writer much more than a missed detection costs the site. A split means one of the two methods thinks a person wrote it, and that alone is reason not to tell anyone otherwise with confidence. The cost is that AI text which fools just one signal gets "unsure" instead of "AI". I accept that trade.
 
 **The numbers:**
+
+| Setting | Value | In `config.py` |
+|---|---|---|
+| Model signal weight | 0.5 | `WEIGHT_MODEL_SIGNAL` |
+| Style signal weight | 0.5 | `WEIGHT_STYLE_SIGNAL` |
+| A signal "leans AI" at | 0.5 or above | `SIGNAL_LEANS_AI` |
+| Cap when the signals split | 0.64 (`AI_THRESHOLD` − 0.01) | `SPLIT_CAP` |
+| High-confidence human | combined score 0.35 or below | `HUMAN_THRESHOLD` |
+| High-confidence AI | combined score 0.65 or above | `AI_THRESHOLD` |
+
+Example: model 0.95, style 0.35. A plain average gives 0.65, which is the AI label. Under my rule the style signal leans human, so the score is capped at 0.64, which is unsure.
 
 **Where it lives:** `scoring.py::combine_signals`
 
@@ -190,6 +230,26 @@ An appeal on an item already under review is accepted and logged again. The log 
      somewhere else, say where. -->
 
 **A case where my two signals split, and what my rule does with it:**
+
+Both signals on the same pieces, with the calibrated style weights and my combining rule (an equal-weight average with the split cap; human at 0.35 or below, AI at 0.65 or above). The cap didn't change any of these five scores:
+
+| Piece | Who wrote it | Model | Style | Gap | Combined | Label |
+|---|---|---|---|---|---|---|
+| Time-management essay | Claude (AI), unedited | 0.887 | 0.718 | 0.17 | 0.802 | AI |
+| Review-hijacking abstract | me, formal | 0.413 | 0.079 | 0.33 | 0.246 | human |
+| Journal entry (not reproduced) | me, plain | 0.396 | 0.197 | 0.20 | 0.296 | human |
+| "Hi! This is Monika and I'm so glad to be here. I just want to see how this app flags this text." | me, casual | **0.550** | **0.150** | **0.40** | **0.3499** | human, by a hair |
+| "Next is step 2 of Milestone 3: read text and creator_id from the request…" (47 words) | Claude (AI) | 0.274 | 0.352 | 0.08 | 0.313 | human (wrong) |
+
+**Where they agree.** On the long pieces they point the same way. Both call the AI essay AI, and both call my abstract and my journal human. The style signal is the more confident of the two on human writing.
+
+**Where they split.** My short casual message is the clearest split. The model signal leans AI (0.550) because "so glad to be here" and "I just want to see how" are friendly, common phrases GPT-2 predicts easily. The style signal says human (0.150) because the sentences vary in length: "Hi!" is next to a 17-word sentence. The placeholder average lands at **0.3499**, one ten-thousandth under the 0.35 human threshold. A ten-thousandth of a point higher and an honest, three-sentence message from me would be told the system is unsure about it.
+
+This is the case my combining rule has to handle. When one signal says AI and the other says human, a plain average turns the disagreement into a number in the middle, and where that number falls is close to arbitrary. The model signal is also the less reliable one on short, friendly text; that's its blind spot. My rule should treat a large gap between the two as uncertainty in its own right, and should never let one signal alone push a split case into the AI band.
+
+**What my rule does with it.** The style signal (0.150) leans human, so this counts as a split and the score is capped at 0.64. Here the average (0.3499) is already well under the cap, so the label stays human. The cap matters for the opposite split: had the model signal said 0.95 on a text the style signal scored 0.35, a plain average would label it AI at 0.65. My rule makes that unsure (0.64).
+
+**Agreeing isn't the same as being right.** The last row is AI text that both signals call human-ish. Technical words (`creator_id`, "README contract") surprise GPT-2, and the three sentences vary in length. No combining rule fixes a case where both signals miss. It's a blind spot they share, and it's a missed AI detection, not a false accusation.
 
 
 

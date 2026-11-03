@@ -57,6 +57,12 @@ DETECTOR_MAX_TOKENS = 400
 WEIGHT_MODEL_SIGNAL = 0.5
 WEIGHT_STYLE_SIGNAL = 0.5
 
+# The disagreement rule: the AI label needs BOTH signals to lean AI. A signal
+# "leans AI" at SIGNAL_LEANS_AI or above. If either is below it, the combined
+# score is capped at SPLIT_CAP — just under AI_THRESHOLD — so a split can reach
+# "unsure" but never "high-confidence AI".
+SIGNAL_LEANS_AI = 0.5
+
 
 # ─── Thresholds (Milestone 5) ────────────────────────────────────────────────
 # Where one label becomes another. Scores run 0.0 (confidently human) to 1.0
@@ -73,6 +79,8 @@ WEIGHT_STYLE_SIGNAL = 0.5
 
 HUMAN_THRESHOLD = 0.35
 AI_THRESHOLD = 0.65
+
+SPLIT_CAP = round(AI_THRESHOLD - 0.01, 2)   # see SIGNAL_LEANS_AI above
 
 # ⚠️ One thing that catches people out in Milestone 5. A weighted average can
 # only land between its two inputs — so while `style_signal` is still the stub
