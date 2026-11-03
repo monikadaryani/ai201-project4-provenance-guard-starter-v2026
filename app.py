@@ -41,6 +41,7 @@ app = Flask(__name__)
 # testing what breaks.
 MIN_TEXT_CHARS = 50
 MAX_TEXT_CHARS = 20_000
+MAX_REASONING_CHARS = 5_000
 
 
 def _error(code, message, status):
@@ -247,11 +248,8 @@ def submit():
     combined_score = scoring.combine_signals(model_score, style_score)
     content_id = str(uuid.uuid4())
 
-    # Milestone 4: both signals and the combined score are real. The guess,
-    # label and confidence arrive with score_to_label in Milestone 5.
-    guess = "unsure"
-    label = "PLACEHOLDER label"
-    confidence = 0.0
+    guess, label = scoring.score_to_label(combined_score)
+    confidence = scoring.confidence(combined_score)
 
     # Both signal scores go in the log beside the combined one: next unit,
     # a wrong label can only be traced to the signal that caused it from here.
@@ -298,14 +296,45 @@ def appeal():
     to the person on the other end. It's the only thing standing between a
     wrong accusation and nothing at all.
     """
-    payload = request.get_json(silent=True) or {}
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return _error("invalid_json", "Send a JSON object with `content_id` and `reasoning`.", 400)
 
-    # TODO: delete this and build the route.
+    content_id = payload.get("content_id")
+    reasoning = payload.get("reasoning")
+
+    if not isinstance(content_id, str) or not content_id.strip():
+        return _error("missing_content_id",
+                      "Include the ID from your result in the `content_id` field.", 400)
+    content_id = content_id.strip()
+    if not isinstance(reasoning, str) or not reasoning.strip():
+        return _error("missing_reasoning",
+                      "Tell us in your own words why the result is wrong, in the `reasoning` field.", 400)
+    reasoning = reasoning.strip()
+    if len(reasoning) > MAX_REASONING_CHARS:
+        return _error("missing_reasoning",
+                      f"Please keep your explanation under {MAX_REASONING_CHARS:,} characters.", 400)
+
+    # The original decision, not an earlier appeal. Its creator_id is the one
+    # the appeal is recorded against, so an appeal always stays tied to the
+    # person who submitted.
+    decisions = [e for e in audit.entries_for(content_id) if e.get("event") != "appeal"]
+    if not decisions:
+        return _error("unknown_content_id",
+                      "We couldn't find a submission with that ID. Check it matches the one on your result.", 404)
+
+    audit.log_appeal(
+        content_id=content_id,
+        creator_id=decisions[0]["creator_id"],
+        reasoning=reasoning,
+    )
+
     return jsonify({
-        "error": "not_implemented",
-        "message": "POST /appeal isn't built yet — see the TODO in app.py.",
-        "you_sent": payload,
-    }), 501
+        "content_id": content_id,
+        "status": "under_review",
+        "message": "Thanks for telling us. A person will review this result. "
+                   "Nothing changes automatically in the meantime.",
+    })
 
 
 # ── Already works ─────────────────────────────────────────────────────────────

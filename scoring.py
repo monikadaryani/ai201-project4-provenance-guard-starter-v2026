@@ -18,6 +18,24 @@ you claim, so that line should read `scoring.py::combine_signals`.
 
 import config
 
+# The exact text a reader sees, word for word as in the README's Label
+# Variants table. Change one, change the other.
+LABEL_HUMAN = "We think this was probably written by a person."
+
+LABEL_UNSURE = (
+    "We can't tell whether a person or an AI tool wrote this. The patterns we "
+    "look for were mixed, and that happens with a lot of genuine human "
+    "writing. This is not an accusation. If you wrote it yourself, you don't "
+    "need to do anything."
+)
+
+LABEL_AI = (
+    "We think this was probably written with the help of an AI tool. This is "
+    "an automated guess, not proof, and it can be wrong, especially for "
+    "writing that is simple or plain. If you wrote this yourself, you can ask "
+    "a person to review it using the ID shown with this result."
+)
+
 
 def combine_signals(model_score: float, style_score: float) -> float:
     """
@@ -96,12 +114,21 @@ def score_to_label(score: float) -> tuple[str, str]:
     think if they got it on their own work. That question is the whole
     milestone.
     """
-    # TODO: replace this — thresholds are in config.py
     if score >= config.AI_THRESHOLD:
-        return "ai", "PLACEHOLDER — write the high-confidence AI label."
+        return "ai", LABEL_AI
     if score <= config.HUMAN_THRESHOLD:
-        return "human", "PLACEHOLDER — write the high-confidence human label."
-    return "unsure", "PLACEHOLDER — write the unsure label."
+        return "human", LABEL_HUMAN
+    return "unsure", LABEL_UNSURE
+
+
+def confidence(score: float) -> float:
+    """
+    How far the combined score sits from the 0.5 midpoint, on 0–1.
+
+    Near 0 means the signals give no clear answer; near 1 means a strong lean
+    one way or the other. The formula is in the README's /submit contract.
+    """
+    return round(abs(score - 0.5) * 2, 4)
 
 
 def label_ranges() -> list[tuple[str, str]]:

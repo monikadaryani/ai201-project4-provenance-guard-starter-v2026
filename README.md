@@ -264,14 +264,36 @@ This is the case my combining rule has to handle. When one signal says AI and th
 
 | Label | Score range | The exact text a reader sees |
 |---|---|---|
-| high-confidence human |  |  |
-| unsure |  |  |
-| high-confidence AI |  |  |
+| high-confidence human | 0.00 to 0.35 | "We think this was probably written by a person." |
+| unsure | above 0.35 and below 0.65 | "We can't tell whether a person or an AI tool wrote this. The patterns we look for were mixed, and that happens with a lot of genuine human writing. This is not an accusation. If you wrote it yourself, you don't need to do anything." |
+| high-confidence AI | 0.65 to 1.00 | "We think this was probably written with the help of an AI tool. This is an automated guess, not proof, and it can be wrong, especially for writing that is simple or plain. If you wrote this yourself, you can ask a person to review it using the ID shown with this result." |
+
+The score is the combined score from `scoring.py::combine_signals`. A score of exactly 0.35 counts as human, and exactly 0.65 counts as AI. Because of my combining rule, a text only reaches the AI range when both signals lean AI.
+
+**All three are reachable.** `scoring.label_ranges()` prints `0.00 – 0.35`, `0.35 – 0.65`, `0.65 – 1.00`, with no gap between them. Real submissions through `/submit`:
+
+| Text | Model | Style | Combined | Label |
+|---|---|---|---|---|
+| Time-management essay (AI) | 0.8867 | 0.7175 | 0.8021 | high-confidence AI |
+| My review-hijacking abstract | 0.4132 | 0.0785 | 0.2459 | high-confidence human |
+| "Hi! This is Monika and I **am** so glad to be here. I just want to see how this app flags this text." | 0.5545 | 0.1659 | 0.3602 | unsure |
+
+The unsure case is the same message as my split case, with "I'm" written as "I am". That one change moved the combined score from 0.3499 (human) to 0.3602 (unsure). Short texts sit close to the boundaries, and a contraction is enough to cross one. That's a good reason the unsure label had to be harmless to receive.
 
 **Why I worded the "unsure" one this way:**
 <!-- It's the hardest of the three. It has to admit uncertainty without
      sounding like an accusation, because the person reading it may well have
      written every word themselves. -->
+
+The person reading it may well have written every word, and my own short message landed right on the edge of this band. So the label does four things, in this order:
+- **It says plainly that we don't know.** It doesn't use a hedged half-accusation like "may contain AI content".
+- **It names a person first.** "A person or an AI tool" puts the more likely, innocent answer first.
+- **It explains why without blaming the writer.** "Mixed patterns" is something about our check, not something they did wrong. Saying this happens with a lot of genuine human writing is true: my plain journal entry and my casual message both scored closer to this band than my formal abstract did.
+- **It ends by saying "This is not an accusation" and that they don't need to do anything.** A writer who gets "unsure" on their own work shouldn't feel they have to defend themselves.
+
+It doesn't mention appeals. Offering an appeal for "unsure" would suggest something is wrong that needs fixing. The appeal goes on the AI label, where it's needed.
+
+The AI label is worded with the same care. It says "probably", calls itself "an automated guess, not proof", and names the writers it most often gets wrong (plain, simple writing; see my false-positive trace). It also tells the reader exactly what to do if it's wrong.
 
 
 
@@ -297,22 +319,17 @@ $ curl -X POST http://127.0.0.1:5000/submit \
 
 ```json
 {
-  "combined_score": null,
-  "confidence": 0.0,
-  "content_id": "ea344e42-3540-44f0-9026-156c3673a599",
+  "combined_score": 0.3602,
+  "confidence": 0.2796,
+  "content_id": "3f21f8bd-0416-4b3d-b1db-004b3cd42a4a",
   "creator_id": "monika",
   "guess": "unsure",
-  "label": "PLACEHOLDER label",
+  "label": "We can't tell whether a person or an AI tool wrote this. The patterns we look for were mixed, and that happens with a lot of genuine human writing. This is not an accusation. If you wrote it yourself, you don't need to do anything.",
   "model_score": 0.5545,
   "status": "decided",
-  "style_score": null
+  "style_score": 0.1659
 }
 ```
-
-<!-- Milestone 3 run: only the model signal is wired in. style_score and
-     combined_score are null and guess/label/confidence are placeholders until
-     Milestones 4 and 5 — re-run and replace this once they're built. -->
-
 
 
 **An appeal**
@@ -320,11 +337,15 @@ $ curl -X POST http://127.0.0.1:5000/submit \
 ```bash
 $ curl -X POST http://127.0.0.1:5000/appeal \
   -H "Content-Type: application/json" \
-  -d '{"content_id": "...", "reasoning": "..."}'
+  -d '{"content_id": "3f21f8bd-0416-4b3d-b1db-004b3cd42a4a", "reasoning": "I wrote this myself as a quick hello. It is short and casual, which is probably why the checker could not decide."}'
 ```
 
 ```json
-
+{
+  "content_id": "3f21f8bd-0416-4b3d-b1db-004b3cd42a4a",
+  "message": "Thanks for telling us. A person will review this result. Nothing changes automatically in the meantime.",
+  "status": "under_review"
+}
 ```
 
 **What the log shows afterwards**
@@ -335,37 +356,43 @@ $ curl "http://127.0.0.1:5000/log?limit=3"
 
 ```json
 {
-  "count": 2,
+  "count": 3,
   "entries": [
     {
-      "combined_score": null,
-      "content_id": "61f9d0a1-4cc4-485a-b514-13eb3b8aff61",
+      "combined_score": 0.3602,
+      "content_id": "65954d5a-ba08-4a33-a27f-038168a4d547",
       "creator_id": "monika",
       "guess": "unsure",
-      "label": "PLACEHOLDER label",
+      "label": "We can't tell whether a person or an AI tool wrote this. The patterns we look for were mixed, and that happens with a lot of genuine human writing. This is not an accusation. If you wrote it yourself, you don't need to do anything.",
       "model_score": 0.5545,
       "status": "decided",
-      "style_score": null,
-      "timestamp": "2026-10-30T21:01:51+00:00"
+      "style_score": 0.1659,
+      "timestamp": "2026-11-03T22:56:30+00:00"
     },
     {
-      "combined_score": null,
-      "content_id": "ea344e42-3540-44f0-9026-156c3673a599",
+      "combined_score": 0.3602,
+      "content_id": "3f21f8bd-0416-4b3d-b1db-004b3cd42a4a",
       "creator_id": "monika",
       "guess": "unsure",
-      "label": "PLACEHOLDER label",
+      "label": "We can't tell whether a person or an AI tool wrote this. The patterns we look for were mixed, and that happens with a lot of genuine human writing. This is not an accusation. If you wrote it yourself, you don't need to do anything.",
       "model_score": 0.5545,
       "status": "decided",
-      "style_score": null,
-      "timestamp": "2026-10-30T21:03:33+00:00"
+      "style_score": 0.1659,
+      "timestamp": "2026-11-03T22:58:06+00:00"
+    },
+    {
+      "content_id": "3f21f8bd-0416-4b3d-b1db-004b3cd42a4a",
+      "creator_id": "monika",
+      "event": "appeal",
+      "reasoning": "I wrote this myself as a quick hello. It is short and casual, which is probably why the checker could not decide.",
+      "status": "under_review",
+      "timestamp": "2026-11-03T22:58:06+00:00"
     }
   ]
 }
 ```
 
-<!-- Milestone 3 run, before /appeal exists. The second entry is the
-     submission above (same content_id). Re-run after the appeal so this
-     shows the decision followed by its under_review entry. -->
+The last two entries are the submission above and its appeal: same `content_id`, the original decision still `decided` and untouched, and the appeal after it with status `under_review` and the writer's reasoning. The first entry is an earlier run of the same text, from my label tests. Same text, same scores.
 
 ---
 
