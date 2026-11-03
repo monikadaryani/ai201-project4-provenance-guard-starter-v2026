@@ -41,17 +41,19 @@
 
 **1. The request arrives (`POST /submit` in `app.py`).** A client sends the text to the service as JSON, for example `{"text": "...", "creator_id": "..."}`. Flask receives it and turns the JSON body into a Python dictionary with `request.get_json()`. **It adds** a readable form of the submission that the rest of the code can work with. Before this step it's just bytes over the network. After it, there's a dict holding the `text` and the `creator_id` of whoever sent it. Nothing has been judged yet.
 
-**2. The submission is unpacked and given an ID (`submit()` in `app.py`).** The handler takes `text` and `creator_id` out of the dictionary and checks that the text is actually there. If it's missing or empty, the request is turned away with an error here rather than crashing a later step. It then creates a `content_id` with `uuid.uuid4()`. **It adds** a unique ID for this one submission. Every later step, the log entry, and any appeal the writer files will use this ID to refer to it.
+**2. The submission is unpacked and given an ID (`submit()` in `app.py`).** The handler takes `text` and `creator_id` out of the dictionary and checks them against the contract below. Text that is missing, not a string, blank, under 50 characters or over 20,000 is turned away here with a 4xx error and a plain-language message, and so is a missing `creator_id`. Nothing bad reaches a later step, and nothing turned away is logged as a decision. It then creates a `content_id` with `uuid.uuid4()`. **It adds** a unique ID for this one submission. Every later step, the log entry, and any appeal the writer files will use this ID to refer to it.
 
 **3. The model signal (`detector.model_signal` in `detector.py`).** The text is run through GPT-2 on the local machine to measure its perplexity, meaning how predictable the model finds each next word. That perplexity is squashed onto a 0–1 scale, where low perplexity means a high score. **It adds** `model_score`, a number from 0 to 1 where higher means "reads more like AI." This step judges the words themselves, not the shape of the text.
 
-**4. The style signal (`stylometry.style_signal` in `stylometry.py`).** The same text is measured as shape only, without reading its meaning. It looks at how much sentence lengths vary, how often vocabulary repeats, and how much punctuation there is and how varied it is. Those three measures are scaled and combined into one number. **It adds** `style_score`, a second 0–1 score where higher means "more like AI." It comes from a completely different kind of evidence than step 3.
+**4. The style signal (`stylometry.style_signal` in `stylometry.py`).** The same text is measured as shape only, without reading its meaning. It takes four measures: how much sentence lengths vary, how often vocabulary repeats, how much human-leaning punctuation there is, and how often em dashes and colons appear. Each is placed on a 0–1 "AI-ness" scale between a typical-human and a typical-AI value, and they're averaged with weights set by calibration (sentence spread counts most). **It adds** `style_score`, a second 0–1 score where higher means "more like AI." It comes from a completely different kind of evidence than step 3.
 
-**5. The two signals are combined (`scoring.combine_signals` in `scoring.py`).** The two scores are merged into one using the combining rule described under *Signals and Scoring* below. This is also where the service decides what to do when the two signals disagree. **It adds** `combined_score`, one number from 0 (confidently human) to 1 (confidently AI). Every later decision is based on this number.
+**5. The two signals are combined (`scoring.combine_signals` in `scoring.py`).** The two scores are averaged with equal weight. If either signal leans human (below 0.5), the result is capped at 0.64, just under the AI threshold, so a disagreement can produce "unsure" but never an AI label. The full rule is under *Signals and Scoring* below. **It adds** `combined_score`, one number from 0 (confidently human) to 1 (confidently AI). Every later decision is based on this number.
 
-**6. The score becomes words (`scoring.score_to_label` in `scoring.py`).** The combined score is compared against two thresholds in `config.py`, `HUMAN_THRESHOLD` and `AI_THRESHOLD`. The comparison puts it in one of three bands: high-confidence human, unsure, or high-confidence AI. **It adds** a `guess` (`human` / `unsure` / `ai`) for the machine and a `label`, which is the plain-language sentence a reader actually sees in place of a number.
+**6. The score becomes words (`scoring.score_to_label` in `scoring.py`).** The combined score is compared against two thresholds in `config.py`, `HUMAN_THRESHOLD` and `AI_THRESHOLD`. The comparison puts it in one of three bands: high-confidence human (0.35 or below), unsure, or high-confidence AI (0.65 or above). **It adds** a `guess` (`human` / `unsure` / `ai`) for the machine, a `label`, which is the plain-language sentence a reader actually sees in place of a number (the exact wording is under *Label Variants*), and a `confidence`, which says how far the score sits from the 0.5 midpoint.
 
 **7. The decision is logged and returned (`audit.log_decision` in `audit.py`, then the JSON response).** The service writes one line to the append-only audit log. That line holds the timestamp, `content_id`, `creator_id`, both signal scores, the combined score, the guess, the label, and the status `decided`. It then sends the same information back to the caller as JSON. **It adds** a permanent record of the decision that can be checked later and that `/appeal` can find by `content_id`. The response also delivers the label to the reader, which is the end of the path.
+
+**After the label: the appeal (`POST /appeal`).** If the writer thinks the label is wrong, they send the `content_id` and their reasoning. The service checks that the ID exists (404 if not), writes an appeal entry with status `under_review` right after the original decision, and confirms. The original decision is never changed or deleted, and nothing is re-scored automatically; a person reviews it.
 
 ### Tracing the false positive
 
@@ -398,17 +400,19 @@ The last two entries are the submission above and its appeal: same `content_id`,
 
 ## How I Used AI
 
-**Moment 1**
+I used Claude (in Claude Code) throughout this unit. It explained the assignment steps, drafted most of the README text and wrote most of the code, and I tested, supplied my own writing, and made the decisions about what the service should do. Two moments where what came back changed because of me:
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+**Moment 1: em dashes and colons**
 
-**Moment 2**
+- *What I asked for:* To implement `punctuation_density`. Once I saw it, I asked for em dashes and colons to count for more, because recent chatbots overuse them.
+- *What came back:* First, a measure that counted all the "interesting" marks the same. Then a version where em dashes, en dashes and colons counted double. Claude pointed out a problem with that: the other marks (`?`, `!`, parentheses) lean human while em dashes and colons lean AI, so one number would mix two directions and `style_signal` couldn't tell which had pushed it up.
+- *What I changed:* I had it split them. Em dashes, en dashes and colons became a separate fourth measure, `dash_colon_rate`, where higher means more AI. `punctuation_density` now counts only the human-leaning marks. Typed dashes (`-`, `--`) stay with the human marks, since people typing usually use those. The weighting I first asked for was removed.
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+**Moment 2: calibrating the style signal**
+
+- *What I asked for:* To calibrate the style signal against the four Milestone 4 inputs.
+- *What came back:* A `calibrate.py` script and an AI-written essay for the "clearly AI" input. Claude asked me for the other three, because human samples have to be my own writing. Its first weights (spread 0.35, vocabulary 0.25, punctuation 0.25, dash/colon 0.15) turned out wrong on my texts. My plain journal entry scored *more* AI-like on punctuation than the AI essay, and vocabulary scored the AI essay and my abstract the same.
+- *What I changed:* I supplied my own paper abstract and a journal entry, and did the light edit of the AI essay myself (a few words, a typo, a paragraph break, an exclamation mark). The weights moved to spread 0.60, vocabulary 0.10, punctuation 0.15, dash/colon 0.15, based on those results. I didn't want `calibrate.py` in the project, so I had it deleted, and the README now records the results instead. My journal entry is personal, so it was scored from a temporary file outside the repo and appears here only as numbers.
 
 <!-- ═══════════════════════ UNIT 8 — THE TEST ═══════════════════════ -->
 

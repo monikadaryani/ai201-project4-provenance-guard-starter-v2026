@@ -233,6 +233,7 @@ def submit():
     if not isinstance(creator_id, str) or not creator_id.strip():
         return _error("missing_creator_id", "Say who wrote this in the `creator_id` field.", 400)
     creator_id = creator_id.strip()
+    content_id = str(uuid.uuid4())
 
     try:
         model_score = detector.model_signal(text)
@@ -246,7 +247,6 @@ def submit():
 
     style_score = stylometry.style_signal(text)
     combined_score = scoring.combine_signals(model_score, style_score)
-    content_id = str(uuid.uuid4())
 
     guess, label = scoring.score_to_label(combined_score)
     confidence = scoring.confidence(combined_score)
