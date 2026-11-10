@@ -217,34 +217,44 @@ def submit():
     """
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
-        return _error("invalid_json", "Send a JSON object with `text` and `creator_id`.", 400)
+        payload = None
+    creator_id = payload.get("creator_id") if payload else None
+
+    def refuse(code, message, status):
+        # Every refusal leaves a trace: an attack that shows up only as an
+        # absence is one you'll never find.
+        who = creator_id.strip() if isinstance(creator_id, str) and creator_id.strip() else "unknown"
+        audit.log_rejection(creator_id=who, reason=code, http_status=status)
+        return _error(code, message, status)
+
+    if payload is None:
+        return refuse("invalid_json", "Send a JSON object with `text` and `creator_id`.", 400)
 
     text = payload.get("text")
-    creator_id = payload.get("creator_id")
 
     if not isinstance(text, str) or not text.strip():
-        return _error("missing_text", "There's no text to check. Send it in the `text` field.", 400)
+        return refuse("missing_text", "There's no text to check. Send it in the `text` field.", 400)
     text = text.strip()
     if len(text) < MIN_TEXT_CHARS:
-        return _error("text_too_short",
+        return refuse("text_too_short",
                       f"The text is too short to judge fairly. Send at least {MIN_TEXT_CHARS} characters.", 400)
     if len(text) > MAX_TEXT_CHARS:
-        return _error("text_too_long",
+        return refuse("text_too_long",
                       f"The text is too long. Send at most {MAX_TEXT_CHARS:,} characters.", 413)
     if not isinstance(creator_id, str) or not creator_id.strip():
-        return _error("missing_creator_id", "Say who wrote this in the `creator_id` field.", 400)
+        return refuse("missing_creator_id", "Say who wrote this in the `creator_id` field.", 400)
     creator_id = creator_id.strip()
     content_id = str(uuid.uuid4())
 
     try:
         model_score = detector.model_signal(text)
     except detector.DetectorUnavailable:
-        return _error("detector_unavailable",
+        return refuse("detector_unavailable",
                       "The checker isn't available right now. Nothing was recorded; try again later.", 503)
     except ValueError:
         # The detector refuses text under 3 tokens. MIN_TEXT_CHARS should stop
         # that first, but a long run of symbols can still get here.
-        return _error("text_too_short", "The text is too short to judge fairly.", 400)
+        return refuse("text_too_short", "The text is too short to judge fairly.", 400)
 
     style_score = stylometry.style_signal(text)
     phrase_score = phrases.phrase_signal(text)
