@@ -488,17 +488,24 @@ I used Claude (in Claude Code) throughout this unit. It explained the assignment
 
 ## Rate Limiting
 
-**My limits:** ___ per minute, ___ per day
+**My limits:** 5 per minute, 50 per day
 
 **Why those numbers and not others:**
 <!-- Think about two people: a real writer submitting their own work a few
      times an hour, and a script sending a thousand variations to map your
      thresholds. Your numbers have to be liveable for the first and hostile to
      the second. -->
+     A real writer might submit, change a paragraph, and submit again. Even quick edit-and-resubmit rounds rarely go past 2–3 a minute, so 5 per minute never gets in their way. Over a heavy day, say a few pieces each revised several times, that's maybe 15–30 submissions. 50 leaves room above that.
+
 
 **What a caller counts as:** <!-- per address, or per creator_id? They fail
 differently — one script can look like a thousand callers, and one household
 can look like one. -->
+Per `creator_id`, with the caller's IP address as a fallback when a request has no usable `creator_id` (`app.py::rate_limit_key`).
+
+I picked `creator_id` so the limit falls on the writer, not on the network. A classroom, a library or a household often shares one public IP address. Counting per address would let one busy person use up everyone's quota, and a class submitting before a deadline would lock itself out.
+
+How it fails: the caller chooses `creator_id`, and nothing checks it. A script can send a new ID with every request, look like a thousand different writers, and never reach the limit. Per-IP counting fails the other way: it catches that script, as long as the script stays on one address, but punishes the shared household. Per-`creator_id` counting is fair to real writers and weak against a script that lies about who it is. Closing that gap would mean adding a looser per-IP limit on top, or using IDs the service issues itself rather than ones the caller makes up.
 
 **The run of status codes when I pushed past it:**
 
