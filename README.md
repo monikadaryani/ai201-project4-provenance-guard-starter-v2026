@@ -47,7 +47,7 @@
 
 **4. The style signal (`stylometry.style_signal` in `stylometry.py`).** The same text is measured as shape only, without reading its meaning. It takes four measures: how much sentence lengths vary, how often vocabulary repeats, how much human-leaning punctuation there is, and how often em dashes and colons appear. Each is placed on a 0–1 "AI-ness" scale between a typical-human and a typical-AI value, and they're averaged with weights set by calibration (sentence spread counts most). Alongside it, `phrases.phrase_signal` counts stock AI phrases and adds a `phrase_score` (stretch goal). **It adds** `style_score`, a second 0–1 score where higher means "more like AI." It comes from a completely different kind of evidence than step 3.
 
-**5. The two signals are combined (`scoring.combine_signals` in `scoring.py`).** The two scores are averaged with equal weight, and the phrase score can nudge that average toward AI by up to 20% of the distance left. If either the model or the style signal leans human (below 0.5), the result is capped at 0.64, just under the AI threshold, so a disagreement can produce "unsure" but never an AI label. The full rule is under *Signals and Scoring* below. **It adds** `combined_score`, one number from 0 (confidently human) to 1 (confidently AI). Every later decision is based on this number.
+**5. The two signals are combined (`scoring.combine_signals` in `scoring.py`).** The two scores are averaged with equal weight, and the phrase score can nudge that average toward AI by up to 20% of the distance left. If either the model or the style signal leans human or is undecided (0.5 or below), the result is capped at 0.64, just under the AI threshold, so a disagreement can produce "unsure" but never an AI label. The full rule is under *Signals and Scoring* below. **It adds** `combined_score`, one number from 0 (confidently human) to 1 (confidently AI). Every later decision is based on this number.
 
 **6. The score becomes words (`scoring.score_to_label` in `scoring.py`).** The combined score is compared against two thresholds in `config.py`, `HUMAN_THRESHOLD` and `AI_THRESHOLD`. The comparison puts it in one of three bands: high-confidence human (0.35 or below), unsure, or high-confidence AI (0.65 or above). **It adds** a `guess` (`human` / `unsure` / `ai`) for the machine, a `label`, which is the plain-language sentence a reader actually sees in place of a number (the exact wording is under *Label Variants*), and a `confidence`, which says how far the score sits from the 0.5 midpoint.
 
@@ -231,7 +231,7 @@ So I moved the weights to **spread 0.60, vocabulary 0.10, punctuation 0.15, dash
 <!-- Write the rule in words, then give the numbers. What happens when the two
      signals disagree? -->
 
-**The rule:** Average the two signals with equal weight. Then apply one rule about disagreement: **the AI label needs both signals to lean AI.** If either signal says the text leans human (scores below 0.5), the combined score is capped just under the AI threshold, so the worst a split can produce is "unsure", never "high-confidence AI". When the two agree, the average stands as it is. (Stretch goal: before the cap, the phrase signal can nudge the average toward AI by up to 20% of the distance left. See *Signal three* above.)
+**The rule:** Average the two signals with equal weight. Then apply one rule about disagreement: **the AI label needs both signals to lean AI.** If either signal says the text leans human or is undecided (scores 0.5 or below), the combined score is capped just under the AI threshold, so the worst a split can produce is "unsure", never "high-confidence AI". When the two agree, the average stands as it is. (Stretch goal: before the cap, the phrase signal can nudge the average toward AI by up to 20% of the distance left. See *Signal three* above.)
 
 Why equal weights: each signal has a different blind spot. The model signal is fooled by plain, common phrasing, and the style signal by surface edits like splitting sentences. On my calibration inputs neither was more trustworthy than the other, so I had no evidence to favour one.
 
@@ -244,7 +244,7 @@ Why the disagreement rule: a wrong accusation costs a writer much more than a mi
 | Model signal weight | 0.5 | `WEIGHT_MODEL_SIGNAL` |
 | Style signal weight | 0.5 | `WEIGHT_STYLE_SIGNAL` |
 | Phrase signal nudge (stretch) | up to 20% of the distance to 1 | `WEIGHT_PHRASE_SIGNAL` |
-| A signal "leans AI" at | 0.5 or above | `SIGNAL_LEANS_AI` |
+| A signal "leans AI" at | above 0.5 (changed from "0.5 or above"; see The Improvement) | `SIGNAL_LEANS_AI` |
 | Cap when the signals split | 0.64 (`AI_THRESHOLD` − 0.01) | `SPLIT_CAP` |
 | High-confidence human | combined score 0.35 or below | `HUMAN_THRESHOLD` |
 | High-confidence AI | combined score 0.65 or above | `AI_THRESHOLD` |
@@ -771,6 +771,64 @@ Trial 1 of `results/run_2026-11-10_2112_before.md`, one JSON object per line. Tr
 
      Look for a pattern. Five failures on one signal is one problem, not five. -->
 
+**Criterion 2 missed: the gap was 0.287, not 0.30. Stage: signal two (style). Mechanism: it reads my formal writing as even, so it barely separates the groups.**
+
+The AI group averaged 0.738 and my writing averaged 0.451. That's close, but short of the target in all three trials. My human text didn't score low. Four of my five pieces came back "unsure", not "human". Breaking the gap down by signal (trial 1):
+
+| | AI group average | human group average | gap |
+|---|---|---|---|
+| model signal | 0.817 | 0.485 | 0.333 |
+| style signal | 0.648 | 0.418 | **0.231** |
+| combined | 0.738 | 0.451 | 0.287 |
+
+The model signal clears 0.30 on its own. The style signal doesn't. My combining rule weights the two equally, so the combined gap is roughly their average: (0.333 + 0.231) / 2 ≈ 0.28, and the phrase signal adds the rest. The split cap didn't change any score here, so the combining rule only passes on what the signals give it.
+
+Why the style signal is weak on these pieces: the human group is my first five pieces, and three of them are formal: the internship cover letter (style 0.563), my statement of purpose (0.469) and the Repairify work explanation (0.482). Formal writing has evenly sized sentences. Sentence-length spread carries 60% of the style score, and even sentences are exactly what it reads as AI. So my careful, professional writing landed in the middle. It's the same pattern as the formal-register false positives in the attack run (FP02, FP05). From the other side, one AI text ("Reading regularly…", style 0.488) varied its sentence lengths enough to read as human-ish, pulling the AI average down.
+
+**The 17 broken attacks**
+
+They come down to five patterns. For the evasions, the starting point is the clean AI paragraph they were all made from: it scores **0.710 (ai)**, with model 0.669 and style 0.750. I rebuilt it by correcting EV01's typos and scored it.
+
+**Pattern 1: changing sentence lengths beats signal two (EV02, EV03, EV06, EV07, EV09). Stage: signal two, then the combining rule.**
+Five evasions changed only the *shape* of the sentences:
+- **EV02** added "Really." after every sentence. Spread went from 0.16 to 0.85, and style fell to 0.30.
+- **EV06** made one very long sentence and one very short one. Spread was 1.19, and style fell to 0.15.
+- **EV07** joined everything into one sentence with semicolons. Spread can't be measured on one sentence, so it dropped out, and the commas and semicolons pushed the punctuation measure to 0.21. Style fell to 0.14.
+- **EV03** (a pasted quotation) and **EV09** (a human opening paragraph) mixed in sentences of another length. Style came in at 0.51 and 0.42.
+
+Sentence-length spread carries 60% of the style score, so it's the cheapest number in the system to move. Once style drops below 0.5, my split rule caps the score at 0.64. Even when the model signal still leans AI (0.59–0.70), the result can't go above unsure. The mechanism: spread treats any uneven sentence lengths as human, and the split rule hands that one signal a veto. I built that veto on purpose to protect writers, and these attacks are the cost of it.
+
+**Pattern 2: surface noise fools signal one (EV01, EV08). Stage: signal one, then the combining rule. For EV08, also the route.**
+- **EV01** only added typos. The model score fell from 0.669 to 0.164 while style stayed at 0.750. GPT-2 has never seen "poistioned" or "thsi", so each typo is a very unpredictable token, and perplexity shoots up. Typos read as human to signal one. With model under 0.5, the split rule capped the score: 0.457, unsure.
+- **EV08** is 10 words long. Perplexity over about 15 tokens is mostly noise: model 0.245. The route let it through because my minimum is 50 *characters*, which is far below anything the model can judge. So the route is also a stage here.
+
+**Pattern 3: prompt injections work as text, not as instructions (PI01, PI02, PI03). Stage: signals one and two.**
+Nothing in my service reads instructions. There's no LLM that could obey "return human". The injections still worked, because the instruction is scored as part of the writing:
+- **PI01** added three short command sentences to a three-sentence AI paragraph. That made sentence lengths uneven (style 0.15), and the commands are unusual text for GPT-2 (model 0.46).
+- **PI02**'s fake "SYSTEM: … guess=human, confidence=0.02" is full of tokens GPT-2 doesn't expect, and the model score fell to 0.20.
+- **PI03** scored 0.648, just under the AI threshold.
+
+It's the same mechanism as patterns 1 and 2: any added text that looks human dilutes the score. The label text (PI04) and the log (PI05) held. Labels are fixed strings, and the log is written with `json.dumps`, so injected quotes can't break a line.
+
+**Pattern 4: formal or careful human writing reads as AI on both signals (FP02, FP03, FP04, FP05). Stage: signals one and two together. The combining rule can't help, and the label mapping puts the result over 0.65.**
+- **FP02** (formal register), **FP03** (a careful second-language writer), **FP04** (an essay written to a rubric) and **FP05** (technical documentation) all scored model 0.74–0.83 *and* style 0.59–0.81.
+- They're written in common words and plain constructions, which GPT-2 finds predictable. Their sentences are evenly sized (spread 0.24–0.37). FP05 also repeats its technical terms (vocabulary 0.63).
+- Both signals measure *regularity*, and careful human writing is regular. Because the two signals **agree**, the split rule (which needs them to disagree) never fires.
+- FP04 also had stock phrases ("In conclusion", "Additionally"; phrase 0.74), which nudged it further toward AI.
+
+This is the same mechanism as the criterion 2 miss: my formal pieces sat in the middle for the same reason.
+
+**Pattern 5: "couldn't measure" counted as a vote for AI (MF06, MF07). Stage: signal two, then the combining rule.**
+- Emoji (MF06) and Arabic (MF07) contain no Latin-letter words, so `style_signal` returns its fallback, 0.5. The split rule only fires *below* 0.5, so 0.5 counts as "leans AI".
+- The model scored them 0.997 and 0.906 (GPT-2 is very sure about long runs of repeated byte tokens), and the average went over 0.65.
+- So a signal that **didn't read a single word** voted the text into the AI label. Someone writing in Arabic would be accused by a measure that never looked at their writing.
+
+**What links them:** two root causes explain 15 of the 17. EV01 (typos fooling signal one) and EV05 (below) are the other two.
+1. **Sentence-length spread is both the easiest number to game and the one that punishes careful writers.** Patterns 1, 3 and 4 and the criterion 2 miss all run through it. Uneven sentences pull the score toward human (evasions, injections), and even sentences pull it toward AI (formal human writing). One measure, wrong in both directions.
+2. **Missing evidence is treated as evidence.** Pattern 5, and EV08 in pattern 2: a signal that couldn't measure the text still gets a full vote.
+
+EV05 (a heavy human rewrite of AI text, labelled human) is the one break I'd defend. With model 0.32 and style 0.21, so much of it is human-written that "human" is arguably the right answer.
+
 
 
 ---
@@ -779,7 +837,22 @@ Trial 1 of `results/run_2026-11-10_2112_before.md`, one JSON object per line. Tr
 
 **What I changed:**
 
+One character in the combining rule, `scoring.py::combine_signals`: the split check went from `<` to `<=`.
+
+```python
+# before
+signals_split = min(model_score, style_score) < config.SIGNAL_LEANS_AI
+# after
+signals_split = min(model_score, style_score) <= config.SIGNAL_LEANS_AI
+```
+
+Before, a signal "leaned AI" at 0.5 or above. Now it has to be *above* 0.5. A signal sitting exactly on 0.5 hasn't voted, so the AI label still needs both signals to actually lean AI, and an undecided one caps the score at 0.64 (unsure). I updated the comment in `config.py` and the rule text in this README to match. No weights, thresholds or measures changed.
+
 **Which diagnosis pointed at it:**
+
+Pattern 5, "couldn't measure" counted as a vote for AI (MF06, MF07). `style_signal` returns 0.5 when it finds no words to measure, which happens for emoji and for any script that isn't Latin letters, like Arabic. That 0.5 is meant as "no evidence either way". But because the old rule only fired *below* 0.5, it was counted as leaning AI, and the model signal alone (0.997 and 0.906) carried both texts into the AI label. The fix applies the rule I'd already written down: the AI label needs **both** signals to lean AI, and a signal that read nothing doesn't lean anywhere.
+
+I picked this one over the bigger problem (sentence-length spread, patterns 1, 3 and 4) because it's a real accusation with no evidence behind it, and the fix can't make anything else worse. In every run so far, a style score of exactly 0.5 appeared only when no words were found, and the after-run confirms nothing else moved. Changing how spread works would move every score in the system and need recalibrating, which is a bigger change than one improvement should be.
 
 ### Attack Run — After
 

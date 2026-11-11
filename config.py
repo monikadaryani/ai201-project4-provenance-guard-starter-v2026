@@ -64,7 +64,7 @@ WEIGHT_STYLE_SIGNAL = 0.5
 WEIGHT_PHRASE_SIGNAL = 0.2
 
 # The disagreement rule: the AI label needs BOTH signals to lean AI. A signal
-# "leans AI" at SIGNAL_LEANS_AI or above. If either is below it, the combined
+# "leans AI" only ABOVE SIGNAL_LEANS_AI. If either is at or below it, the combined
 # score is capped at SPLIT_CAP — just under AI_THRESHOLD — so a split can reach
 # "unsure" but never "high-confidence AI".
 SIGNAL_LEANS_AI = 0.5

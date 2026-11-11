@@ -72,7 +72,7 @@ def combine_signals(model_score: float, style_score: float, phrase_score: float 
 
     **My rule** (written in the README first): an equal-weight average, plus
     one rule about disagreement — the AI label needs both signals to lean AI.
-    If either is below `SIGNAL_LEANS_AI`, the score is capped at `SPLIT_CAP`,
+    If either is at or below `SIGNAL_LEANS_AI`, the score is capped at `SPLIT_CAP`,
     just under `AI_THRESHOLD`, so a split lands in "unsure" at worst. One
     method thinking a person wrote it is enough not to accuse them.
 
@@ -88,7 +88,10 @@ def combine_signals(model_score: float, style_score: float, phrase_score: float 
 
     score += config.WEIGHT_PHRASE_SIGNAL * phrase_score * (1.0 - score)
 
-    signals_split = min(model_score, style_score) < config.SIGNAL_LEANS_AI
+    # `<=`, not `<`: a signal sitting exactly on 0.5 hasn't voted AI. That's
+    # the value style_signal returns when it found no words to measure
+    # (emoji, Arabic), and "couldn't measure" must not count as evidence.
+    signals_split = min(model_score, style_score) <= config.SIGNAL_LEANS_AI
     if signals_split:
         score = min(score, config.SPLIT_CAP)
 
