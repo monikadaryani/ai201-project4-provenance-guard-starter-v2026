@@ -482,6 +482,20 @@ I used Claude (in Claude Code) throughout this unit. It explained the assignment
 - *What came back:* A `calibrate.py` script and an AI-written essay for the "clearly AI" input. Claude asked me for the other three, because human samples have to be my own writing. Its first weights (spread 0.35, vocabulary 0.25, punctuation 0.25, dash/colon 0.15) turned out wrong on my texts. My plain journal entry scored *more* AI-like on punctuation than the AI essay, and vocabulary scored the AI essay and my abstract the same.
 - *What I changed:* I supplied my own paper abstract and a journal entry, and did the light edit of the AI essay myself (a few words, a typo, a paragraph break, an exclamation mark). The weights moved to spread 0.60, vocabulary 0.10, punctuation 0.15, dash/colon 0.15, based on those results. I didn't want `calibrate.py` in the project, so I had it deleted, and the README now records the results instead. My journal entry is personal, so it was scored from a temporary file outside the repo and appears here only as numbers.
 
+**Unit 8.** I kept using Claude in Claude Code. It wrote most of the eval and attack-run code changes, ran the runs, and drafted the diagnoses and write-ups from the numbers. I chose the test inputs, judged the results, and made the calls on what to change. Two moments:
+
+**Moment 3: picking test inputs by their scores**
+
+- *What I asked for:* Texts for the label-coverage scenario in `scenarios.py`, one that should read as AI, one human and one borderline.
+- *What came back:* Claude wrote the AI and borderline texts, scored a few drafts, and kept the ones that landed where they were supposed to. When the human text I picked came back "unsure", it suggested swapping in a different piece of mine that it had already scored as human.
+- *What I changed:* I pushed back: the system should be tested on inputs chosen for what they are, not shaped until they pass. Claude agreed it had been picking the answer and then choosing the question. I kept my own text even though it scores "unsure", the extra AI and borderline texts were written once and added without scoring them first, and every piece in "my own writing" was chosen by the plain-writing rule in `criteria.md` (sentence and word length), not by its score. That's why criterion 3 only just passes and criterion 2 misses. Those are honest results.
+
+**Moment 4: the improvement**
+
+- *What I asked for:* To fill in The Improvement.
+- *What came back:* Claude said the change had to be real before it could be written up. It proposed the smallest fix the diagnosis pointed at: changing `<` to `<=` in the split rule so a style score of 0.5 ("no words found") can't vote AI. It didn't pick the bigger sentence-length fix, which would change every score. Then it ran both the attack set and the eval again and compared before and after row by row, not just the totals.
+- *What I changed:* I went with the small fix and the reasoning behind it. Earlier in this unit I'd also had Claude undo a larger rewrite of `scenarios.py` and redo it step by step, so I could follow each change. When the write-up was missing the after eval results, I had them added to the README next to the before results, so the evidence is all in one place.
+
 <!-- ═══════════════════════ UNIT 8 — THE TEST ═══════════════════════ -->
 
 ---
@@ -964,13 +978,33 @@ Yes, for exactly the problem it targeted, and I can show nothing else moved.
 <!-- For each attack still getting through and each criterion still missed:
      what you'd do, and why you stopped. -->
 
+After the improvement, 15 attacks still get through and criterion 2 is still missed. Grouped by the diagnosis patterns above:
 
+**Changing sentence lengths: EV02, EV03, EV06, EV07, EV09, and PI01 and PI03.**
+*What I'd do:* two changes that go together.
+- **Make sentence-length spread harder to game:** ignore sentences under four words (the "Really." trick), and measure spread with the median instead of the mean, so one giant or one tiny sentence can't swing it.
+- **Raise the bar for the split rule's veto:** a signal would have to be clearly human, below 0.35, before it can cap the score, instead of anything below 0.5.
+
+*Why I stopped:* the rule was one change, and either of these moves every score in the system. They'd need recalibrating on a bigger set of inputs than my four. The veto change also cuts against writers: the split rule is what kept FP06 out of the AI label, and a tighter veto would let cases like it through to an accusation. I'd want more of my own writing in the test set before I trusted it.
+
+**Typos: EV01.** *What I'd do:* score the model signal on spell-corrected text. *Why I stopped:* real people make typos, and correcting them would remove something genuinely human from the text. Every honest writer would get pushed a little toward AI to catch one trick, and I'm not sure that's a good trade.
+
+**Too short to judge: EV08.** *What I'd do:* change the route's minimum from 50 characters to about 40 *words*, and refuse anything shorter with a 400 that says it's too short to judge fairly. *Why I stopped:* one change per round. It would also refuse genuine short writing (FP08 already gets refused at 50 characters), and I'd rather decide that alongside the label text.
+
+**Fake system message: PI02.** *What I'd do:* nothing aimed at the injection itself. Filtering strings like "SYSTEM:" is a losing game, because the next attack just words it differently. PI02 works because its odd tokens push perplexity up, the same mechanism as the typos, so the fix belongs with EV01's.
+
+**Formal human writing labelled AI: FP02, FP03, FP04, FP05.** These are the ones I most want fixed, because they're wrong accusations. *What I'd do:* add a signal that doesn't measure *regularity*, because both of mine do, and careful writing is regular. Moving the AI threshold from 0.65 to 0.80 would clear FP02 (0.771), FP03 (0.729) and FP04 (0.756), but not FP05 (0.805). It would also push most of my AI test essays (0.70–0.80) down into unsure. *Why I stopped:* I don't have a third kind of measurement ready, and raising the threshold mostly hides the problem by making the AI label close to unreachable. I ran out of time to do this properly.
+
+**Criterion 2, the spread gap at 0.287 against a target of 0.30.** *What I'd do:* the sentence-length change above. The diagnosis shows the style signal is what squeezes the gap (it separates the groups by 0.231, while the model signal manages 0.333 on its own), so a spread measure that doesn't read my formal writing as AI-like would widen it. *Why I stopped:* same reason as the first group, and the target stays where it is.
+
+**Heavy human rewrite: EV05.** I'd leave this one. After that much human editing, "human" is a fair answer.
 
 **The trade I'd make if this ran for real:**
 
 <!-- Two sentences. Fewer wrong accusations means more AI text getting through.
      Say which way you'd go and WHO PAYS FOR IT. -->
 
+I'd go further toward fewer wrong accusations: keep the split rule and raise the AI threshold, even if that lets more AI-written text through as "unsure". The people who pay are the honest writers competing with people who used AI and weren't caught, and the readers or teachers who get less help telling the two apart. I'd still rather they pay than a second-language writer like FP03 being called a cheat for writing carefully.
 
 
 <!-- ═════════════════════════════════════════════════════════════════════
