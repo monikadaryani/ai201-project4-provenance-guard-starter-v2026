@@ -658,17 +658,101 @@ whose work got caught by it:
 
 | Criterion | Target | Run 1 | Run 2 | Run 3 | Verdict |
 |---|---|---|---|---|---|
-| 1.  |  |  |  |  |  |
-| 2.  |  |  |  |  |  |
-| 3.  |  |  |  |  |  |
-| 4.  |  |  |  |  |  |
-| 5.  |  |  |  |  |  |
+| 1. My own writing flagged as AI | ≤ 1 of 10 | 0/10 | 0/10 | 0/10 | MET |
+| 2. AI scores above human scores | gap ≥ 0.30 | 0.287 | 0.287 | 0.287 | MISSED |
+| 3. All three labels reachable | 3 of 3 | 3/3 | 3/3 | 3/3 | MET |
+| 4. Appeal always changes status | 5 of 5, and made-up ID 404 | 5/5, 404 | 5/5, 404 | 5/5, 404 | MET |
+| 5. Bad input gets a 4xx, not a 5xx | 6 of 6, and `/ping` answers | 6/6, ping 200 | 6/6, ping 200 | 6/6, ping 200 | MET |
+
+From `results/run_2026-11-10_2112_before.md`. For criterion 2, the gap is the AI group's average combined score (0.738) minus the human group's (0.451). All three trials were identical, score for score: GPT-2 scoring has no randomness, so the same text always gets the same score.
 
 **Real output from one trial**, pasted as text, naming the file and function
 that produced it:
 
-```json
+Trial 1 of `results/run_2026-11-10_2112_before.md`, one JSON object per line. Trials 2 and 3 were identical apart from the IDs (each submission gets a fresh `content_id`, and each trial makes up a new fake one). `sent` is the first 70 characters of what was sent, and is cut off there by `run_eval.py::describe`.
 
+*Criterion 1, my own writing*, produced by `run_eval.py::main` sending each text to `app.py::submit`:
+
+```json
+[
+  {"status": 200, "content_id": "6c79f7eb-9ed4-40ee-920a-29f88b22d645", "guess": "human", "confidence": 0.3356, "model_score": 0.4735, "style_score": 0.191, "combined_score": 0.3322, "error": null, "label": "We think this was probably written by a person.", "sent": "Hello Summer,\n Thank you for reaching out to me! Sorry for a late resp"},
+  {"status": 200, "content_id": "75469c22-a3a9-491d-bf62-7659834751ec", "guess": "unsure", "confidence": 0.2394, "model_score": 0.376, "style_score": 0.3847, "combined_score": 0.3803, "error": null, "label": "We can't tell whether a person or an AI tool wrote this. The patterns we look for were mixed, and that happens with a lot of genuine human writing. This is not an accusation. If you wrote it yourself, you don't need to do anything.", "sent": "I got scared about all this planning. Interestingly I haven't even had"},
+  {"status": 200, "content_id": "c0aa5ace-5811-453b-aa15-b68d94bf70ef", "guess": "unsure", "confidence": 0.113, "model_score": 0.6308, "style_score": 0.4823, "combined_score": 0.5565, "error": null, "label": "We can't tell whether a person or an AI tool wrote this. The patterns we look for were mixed, and that happens with a lot of genuine human writing. This is not an accusation. If you wrote it yourself, you don't need to do anything.", "sent": "So, Repairify is a company where we work with car diagnostics, when a "},
+  {"status": 200, "content_id": "21af6ae4-6b3b-42c6-a2b1-2ef5d4cc0447", "guess": "unsure", "confidence": 0.0384, "model_score": 0.3987, "style_score": 0.563, "combined_score": 0.4808, "error": null, "label": "We can't tell whether a person or an AI tool wrote this. The patterns we look for were mixed, and that happens with a lot of genuine human writing. This is not an accusation. If you wrote it yourself, you don't need to do anything.", "sent": "I am Monika Daryani, a graduate student in Computer Science at Texas A"},
+  {"status": 200, "content_id": "2e5c4cf7-37bd-41fe-91a5-6e511fb35c69", "guess": "unsure", "confidence": 0.0126, "model_score": 0.5441, "style_score": 0.4685, "combined_score": 0.5063, "error": null, "label": "We can't tell whether a person or an AI tool wrote this. The patterns we look for were mixed, and that happens with a lot of genuine human writing. This is not an accusation. If you wrote it yourself, you don't need to do anything.", "sent": "Magic of past is science of today. Who knew that just saying mantras l"},
+  {"status": 200, "content_id": "d1564151-3665-404a-a09f-443d32cb6471", "guess": "unsure", "confidence": 0.2908, "model_score": 0.403, "style_score": 0.3061, "combined_score": 0.3546, "error": null, "label": "We can't tell whether a person or an AI tool wrote this. The patterns we look for were mixed, and that happens with a lot of genuine human writing. This is not an accusation. If you wrote it yourself, you don't need to do anything.", "sent": "Someone once told me if u doubt yourself if you're a good mom or not, "},
+  {"status": 200, "content_id": "28602e08-3e45-44bb-808b-f3cc4f44a99e", "guess": "unsure", "confidence": 0.1564, "model_score": 0.4813, "style_score": 0.3623, "combined_score": 0.4218, "error": null, "label": "We can't tell whether a person or an AI tool wrote this. The patterns we look for were mixed, and that happens with a lot of genuine human writing. This is not an accusation. If you wrote it yourself, you don't need to do anything.", "sent": "Our method also has some limitations. First, the major drawback occurs"},
+  {"status": 200, "content_id": "10ae2b3b-c8d3-481b-98ca-e9999f005f2f", "guess": "unsure", "confidence": 0.0632, "model_score": 0.2978, "style_score": 0.639, "combined_score": 0.4684, "error": null, "label": "We can't tell whether a person or an AI tool wrote this. The patterns we look for were mixed, and that happens with a lot of genuine human writing. This is not an accusation. If you wrote it yourself, you don't need to do anything.", "sent": "We need this bill to claim re-imbursement from my company. I have bill"},
+  {"status": 200, "content_id": "9f45dd4f-cdbc-424c-b997-c4a245fc1566", "guess": "human", "confidence": 0.4616, "model_score": 0.392, "style_score": 0.1464, "combined_score": 0.2692, "error": null, "label": "We think this was probably written by a person.", "sent": "I'm gonna write 3 things I'm grateful for. First, I'm grateful for my "},
+  {"status": 200, "content_id": "86da0c8a-3e7a-4058-bc29-f5cd87c88fea", "guess": "unsure", "confidence": 0.2594, "model_score": 0.7805, "style_score": 0.4788, "combined_score": 0.6297, "error": null, "label": "We can't tell whether a person or an AI tool wrote this. The patterns we look for were mixed, and that happens with a lot of genuine human writing. This is not an accusation. If you wrote it yourself, you don't need to do anything.", "sent": "My name is Monika. I'm 34 years old. My birthday is this month. I have"}
+]
+```
+
+*Criterion 2, spread: AI group*, produced by `run_eval.py::main` → `app.py::submit`:
+
+```json
+[
+  {"status": 200, "content_id": "ca9a7434-3974-4738-b69d-f9875df941ac", "guess": "ai", "confidence": 0.5788, "model_score": 0.9119, "style_score": 0.667, "combined_score": 0.7894, "error": null, "label": "We think this was probably written with the help of an AI tool. This is an automated guess, not proof, and it can be wrong, especially for writing that is simple or plain. If you wrote this yourself, you can ask a person to review it using the ID shown with this result.", "sent": "Regular exercise offers a wide range of benefits for both physical and"},
+  {"status": 200, "content_id": "20df0ac2-b41d-4154-bf43-2b8a6566e59c", "guess": "ai", "confidence": 0.4046, "model_score": 0.6925, "style_score": 0.712, "combined_score": 0.7023, "error": null, "label": "We think this was probably written with the help of an AI tool. This is an automated guess, not proof, and it can be wrong, especially for writing that is simple or plain. If you wrote this yourself, you can ask a person to review it using the ID shown with this result.", "sent": "Learning a new language is a rewarding experience that opens doors to "},
+  {"status": 200, "content_id": "57048189-0fea-4b93-a5c8-73d5ce003bb2", "guess": "ai", "confidence": 0.5714, "model_score": 0.9189, "style_score": 0.6526, "combined_score": 0.7857, "error": null, "label": "We think this was probably written with the help of an AI tool. This is an automated guess, not proof, and it can be wrong, especially for writing that is simple or plain. If you wrote this yourself, you can ask a person to review it using the ID shown with this result.", "sent": "Climate change is one of the most pressing challenges facing the world"},
+  {"status": 200, "content_id": "e729bdf0-e240-499d-92a0-85d6dcb35733", "guess": "ai", "confidence": 0.6062, "model_score": 0.8331, "style_score": 0.7227, "combined_score": 0.8031, "error": null, "label": "We think this was probably written with the help of an AI tool. This is an automated guess, not proof, and it can be wrong, especially for writing that is simple or plain. If you wrote this yourself, you can ask a person to review it using the ID shown with this result.", "sent": "Effective leadership is essential for the success of any organization."},
+  {"status": 200, "content_id": "9df27eff-ed31-4ac5-aa90-2860e1bd3e57", "guess": "unsure", "confidence": 0.2172, "model_score": 0.7297, "style_score": 0.4875, "combined_score": 0.6086, "error": null, "label": "We can't tell whether a person or an AI tool wrote this. The patterns we look for were mixed, and that happens with a lot of genuine human writing. This is not an accusation. If you wrote it yourself, you don't need to do anything.", "sent": "Reading regularly has many benefits that extend far beyond entertainme"}
+]
+```
+
+*Criterion 2, spread: human group*, produced by `run_eval.py::main` → `app.py::submit`:
+
+```json
+[
+  {"status": 200, "content_id": "ba0024ef-e2fb-4441-84ae-e3cd8e7cb53d", "guess": "human", "confidence": 0.3356, "model_score": 0.4735, "style_score": 0.191, "combined_score": 0.3322, "error": null, "label": "We think this was probably written by a person.", "sent": "Hello Summer,\n Thank you for reaching out to me! Sorry for a late resp"},
+  {"status": 200, "content_id": "1e4991c9-06ce-4149-a13e-7845f772acc2", "guess": "unsure", "confidence": 0.2394, "model_score": 0.376, "style_score": 0.3847, "combined_score": 0.3803, "error": null, "label": "We can't tell whether a person or an AI tool wrote this. The patterns we look for were mixed, and that happens with a lot of genuine human writing. This is not an accusation. If you wrote it yourself, you don't need to do anything.", "sent": "I got scared about all this planning. Interestingly I haven't even had"},
+  {"status": 200, "content_id": "e9419fd1-9b86-4942-897b-70114ae2e3bb", "guess": "unsure", "confidence": 0.113, "model_score": 0.6308, "style_score": 0.4823, "combined_score": 0.5565, "error": null, "label": "We can't tell whether a person or an AI tool wrote this. The patterns we look for were mixed, and that happens with a lot of genuine human writing. This is not an accusation. If you wrote it yourself, you don't need to do anything.", "sent": "So, Repairify is a company where we work with car diagnostics, when a "},
+  {"status": 200, "content_id": "c5b54aac-47a9-40ae-88c1-1d10b4b6debe", "guess": "unsure", "confidence": 0.0384, "model_score": 0.3987, "style_score": 0.563, "combined_score": 0.4808, "error": null, "label": "We can't tell whether a person or an AI tool wrote this. The patterns we look for were mixed, and that happens with a lot of genuine human writing. This is not an accusation. If you wrote it yourself, you don't need to do anything.", "sent": "I am Monika Daryani, a graduate student in Computer Science at Texas A"},
+  {"status": 200, "content_id": "3277989a-3e86-47e5-81b1-7842367528e3", "guess": "unsure", "confidence": 0.0126, "model_score": 0.5441, "style_score": 0.4685, "combined_score": 0.5063, "error": null, "label": "We can't tell whether a person or an AI tool wrote this. The patterns we look for were mixed, and that happens with a lot of genuine human writing. This is not an accusation. If you wrote it yourself, you don't need to do anything.", "sent": "Magic of past is science of today. Who knew that just saying mantras l"}
+]
+```
+
+*Criterion 3, label coverage*, produced by `run_eval.py::main` → `app.py::submit`:
+
+```json
+[
+  {"status": 200, "content_id": "3460490d-ba1b-4246-a45d-d83e458d418a", "guess": "ai", "confidence": 0.7076, "model_score": 0.8845, "style_score": 0.75, "combined_score": 0.8538, "error": null, "label": "We think this was probably written with the help of an AI tool. This is an automated guess, not proof, and it can be wrong, especially for writing that is simple or plain. If you wrote this yourself, you can ask a person to review it using the ID shown with this result.", "sent": "Time management is one of the most important skills a student can deve"},
+  {"status": 200, "content_id": "e8afaf52-ad1f-4c18-bff7-cc688427b4ff", "guess": "unsure", "confidence": 0.1266, "model_score": 0.5109, "style_score": 0.6157, "combined_score": 0.5633, "error": null, "label": "We can't tell whether a person or an AI tool wrote this. The patterns we look for were mixed, and that happens with a lot of genuine human writing. This is not an accusation. If you wrote it yourself, you don't need to do anything.", "sent": "Hug yourself because you're amazing. You are amazing and proud. Sia wi"},
+  {"status": 200, "content_id": "ad3abeb8-0667-41d3-a08b-74df88d2c86c", "guess": "unsure", "confidence": 0.0578, "model_score": 0.6203, "style_score": 0.4374, "combined_score": 0.5289, "error": null, "label": "We can't tell whether a person or an AI tool wrote this. The patterns we look for were mixed, and that happens with a lot of genuine human writing. This is not an accusation. If you wrote it yourself, you don't need to do anything.", "sent": "Our team switched to a new project tracker last month. Most people lik"},
+  {"status": 200, "content_id": "569c04c4-fe83-4af7-94df-fb8a2ac46a48", "guess": "ai", "confidence": 0.5082, "model_score": 0.8756, "style_score": 0.5834, "combined_score": 0.7541, "error": null, "label": "We think this was probably written with the help of an AI tool. This is an automated guess, not proof, and it can be wrong, especially for writing that is simple or plain. If you wrote this yourself, you can ask a person to review it using the ID shown with this result.", "sent": "Cloud computing has transformed the way businesses store and manage da"},
+  {"status": 200, "content_id": "6ef5d7b2-517d-4574-a317-69787c811bb8", "guess": "ai", "confidence": 0.4328, "model_score": 0.7967, "style_score": 0.5731, "combined_score": 0.7164, "error": null, "label": "We think this was probably written with the help of an AI tool. This is an automated guess, not proof, and it can be wrong, especially for writing that is simple or plain. If you wrote this yourself, you can ask a person to review it using the ID shown with this result.", "sent": "Maintaining a healthy work-life balance is essential for long-term wel"},
+  {"status": 200, "content_id": "f8f27725-705a-424c-85c6-282ecf4399d0", "guess": "unsure", "confidence": 0.0142, "model_score": 0.7971, "style_score": 0.1886, "combined_score": 0.4929, "error": null, "label": "We can't tell whether a person or an AI tool wrote this. The patterns we look for were mixed, and that happens with a lot of genuine human writing. This is not an accusation. If you wrote it yourself, you don't need to do anything.", "sent": "The community garden will be closed this Saturday for maintenance. Vol"},
+  {"status": 200, "content_id": "0463f247-890e-4ed1-a3e4-b223f1a99a72", "guess": "ai", "confidence": 0.635, "model_score": 0.8632, "style_score": 0.7719, "combined_score": 0.8175, "error": null, "label": "We think this was probably written with the help of an AI tool. This is an automated guess, not proof, and it can be wrong, especially for writing that is simple or plain. If you wrote this yourself, you can ask a person to review it using the ID shown with this result.", "sent": "I bought this blender after my old one finally gave up, and so far I'm"},
+  {"status": 200, "content_id": "dd34e9b0-ca18-4e7c-be69-0cb1900c8e75", "guess": "unsure", "confidence": 0.149, "model_score": 0.6727, "style_score": 0.1783, "combined_score": 0.4255, "error": null, "label": "We can't tell whether a person or an AI tool wrote this. The patterns we look for were mixed, and that happens with a lot of genuine human writing. This is not an accusation. If you wrote it yourself, you don't need to do anything.", "sent": "I feel like I’m cheating in here. My visa doesn’t allow me to have a b"},
+  {"status": 200, "content_id": "c0c3543c-5139-4c5d-adcf-d5cd9baa3137", "guess": "human", "confidence": 0.314, "model_score": 0.4458, "style_score": 0.2403, "combined_score": 0.343, "error": null, "label": "We think this was probably written by a person.", "sent": "So the first version of Astech Insights used Flan-T5, and that used fi"}
+]
+```
+
+*Criterion 4, appeal path*, produced by `run_eval.py::run_appeals` → `app.py::submit`, `app.py::appeal` and `app.py::content_status` (`GET /content/<id>`):
+
+```json
+[
+  {"sent": "Someone once told me if u doubt yourself if you're a good mom or not, ", "submit_status": 200, "content_id": "e0c8cadc-acf6-465e-a525-76b4bb282875", "appeal_status": 200, "status_after": "under_review", "appeals_logged": 1, "decision_unchanged": true},
+  {"sent": "Our method also has some limitations. First, the major drawback occurs", "submit_status": 200, "content_id": "bb0eedd7-3dab-4b22-be58-05454b9f592a", "appeal_status": 200, "status_after": "under_review", "appeals_logged": 1, "decision_unchanged": true},
+  {"sent": "We need this bill to claim re-imbursement from my company. I have bill", "submit_status": 200, "content_id": "7fc86311-6c29-4ce3-83d1-cf6c2b429a60", "appeal_status": 200, "status_after": "under_review", "appeals_logged": 1, "decision_unchanged": true},
+  {"sent": "I'm gonna write 3 things I'm grateful for. First, I'm grateful for my ", "submit_status": 200, "content_id": "99a0a58e-337c-4160-b2e9-039de351a0ad", "appeal_status": 200, "status_after": "under_review", "appeals_logged": 1, "decision_unchanged": true},
+  {"sent": "My name is Monika. I'm 34 years old. My birthday is this month. I have", "submit_status": 200, "content_id": "90a3d583-2d14-4619-9bdb-87b3f6bb5f89", "appeal_status": 200, "status_after": "under_review", "appeals_logged": 1, "decision_unchanged": true},
+  {"sent": "appeal on a made-up content_id (made-up-bbee2182-803a-413a-a03d-c0abb20f45bb)", "appeal_status": 404, "error": "unknown_content_id"}
+]
+```
+
+*Criterion 5, bad input*, produced by `run_eval.py::main` → `app.py::submit`; the last entry is `run_eval.py::ping` → `app.py::ping`:
+
+```json
+[
+  {"status": 400, "content_id": null, "guess": null, "confidence": null, "model_score": null, "style_score": null, "combined_score": null, "error": "missing_text", "label": null, "sent": "(empty text)"},
+  {"status": 400, "content_id": null, "guess": null, "confidence": null, "model_score": null, "style_score": null, "combined_score": null, "error": "missing_text", "label": null, "sent": "   \n\t  "},
+  {"status": 400, "content_id": null, "guess": null, "confidence": null, "model_score": null, "style_score": null, "combined_score": null, "error": "missing_text", "label": null, "sent": "{\"creator_id\": \"eval_bad_missing\"}"},
+  {"status": 400, "content_id": null, "guess": null, "confidence": null, "model_score": null, "style_score": null, "combined_score": null, "error": "missing_text", "label": null, "sent": "{\"text\": null, \"creator_id\": \"eval_bad_null\"}"},
+  {"status": 400, "content_id": null, "guess": null, "confidence": null, "model_score": null, "style_score": null, "combined_score": null, "error": "missing_text", "label": null, "sent": "{\"text\": 12345, \"creator_id\": \"eval_bad_number\"}"},
+  {"status": 413, "content_id": null, "guess": null, "confidence": null, "model_score": null, "style_score": null, "combined_score": null, "error": "text_too_long", "label": null, "sent": "word word word word word word word word word word word word word word "},
+  {"sent": "POST /ping afterwards", "status": 200}
+]
 ```
 
 **Diagnoses**

@@ -112,6 +112,13 @@ def main():
 
         trials = []
         for trial in range(1, args.trials + 1):
+            if "appeals" in scenario:
+                results = run_appeals(scenario, args, requests)
+                trials.append(results)
+                marks = [str(r.get("appeal_status") or "—") for r in results]
+                print(f"  trial {trial}: appeal statuses {', '.join(marks)}")
+                continue
+
             results = []
             for i, body in enumerate(bodies_for(scenario), 1):
                 preview = describe(body)
@@ -121,10 +128,13 @@ def main():
                     payload = response.json() if response.content else {}
                     results.append({
                         "status": response.status_code,
+                        "content_id": payload.get("content_id"),
                         "guess": payload.get("guess"),
                         "confidence": payload.get("confidence"),
                         "model_score": payload.get("model_score"),
                         "style_score": payload.get("style_score"),
+                        "combined_score": payload.get("combined_score"),
+                        "error": payload.get("error"),
                         "label": payload.get("label"),
                         "sent": preview,
                     })
@@ -132,13 +142,82 @@ def main():
                     results.append({"status": None, "error": f"{type(exc).__name__}: {exc}",
                                     "sent": preview})
 
+            if scenario.get("then_ping"):
+                results.append(ping(args, requests))
+
             trials.append(results)
-            guesses = [r.get("guess") or "—" for r in results]
-            print(f"  trial {trial}: {', '.join(guesses)}")
+            if scenario.get("bodies"):
+                marks = [str(r.get("status") or "—") for r in results]
+            else:
+                marks = [r.get("guess") or "—" for r in results]
+            # Criterion 2 compares group averages, so print each trial's.
+            scores = [r["combined_score"] for r in results if r.get("combined_score") is not None]
+            mean = f"   (mean combined_score {sum(scores) / len(scores):.3f})" if scores else ""
+            print(f"  trial {trial}: {', '.join(marks)}{mean}")
 
         rows.append({"scenario": scenario, "trials": trials})
 
     write_report(rows, args)
+
+
+def run_appeals(scenario, args, requests):
+    """
+    Criterion 4: submit, appeal, and check the log, for each text in turn.
+
+    The log is read through GET /content/<id>, which is built from the audit
+    log, once before the appeal and once after. A pass needs: the appeal
+    answers 200 with status "under_review", exactly one appeal is recorded,
+    and the original decision reads the same before and after.
+
+    Then one appeal on a content_id nobody was ever given, which should 404.
+    """
+    import uuid
+
+    unchanged_fields = ("submitted_at", "guess", "label", "combined_score")
+    results = []
+    for i, text in enumerate(scenario["appeals"], 1):
+        body = {"text": text, "creator_id": f"eval_appeal_{i}"}
+        result = {"sent": describe(body)}
+        try:
+            sub = requests.post(f"{args.url}/submit", json=body, timeout=args.timeout)
+            content_id = (sub.json() if sub.content else {}).get("content_id")
+            result.update(submit_status=sub.status_code, content_id=content_id)
+            if content_id:
+                before = requests.get(f"{args.url}/content/{content_id}", timeout=10).json()
+                appeal = requests.post(f"{args.url}/appeal", timeout=10, json={
+                    "content_id": content_id, "reasoning": scenario["reasoning"]})
+                after = requests.get(f"{args.url}/content/{content_id}", timeout=10).json()
+                result.update(
+                    appeal_status=appeal.status_code,
+                    status_after=(appeal.json() if appeal.content else {}).get("status"),
+                    appeals_logged=len(after.get("appeals", [])),
+                    decision_unchanged=all(before.get(f) == after.get(f) for f in unchanged_fields),
+                )
+        except Exception as exc:  # noqa: BLE001
+            result["error"] = f"{type(exc).__name__}: {exc}"
+        results.append(result)
+
+    fake_id = f"made-up-{uuid.uuid4()}"
+    result = {"sent": f"appeal on a made-up content_id ({fake_id})"}
+    try:
+        fake = requests.post(f"{args.url}/appeal", timeout=10, json={
+            "content_id": fake_id, "reasoning": scenario["reasoning"]})
+        result.update(appeal_status=fake.status_code,
+                      error=(fake.json() if fake.content else {}).get("error"))
+    except Exception as exc:  # noqa: BLE001
+        result["error"] = f"{type(exc).__name__}: {exc}"
+    results.append(result)
+    return results
+
+
+def ping(args, requests):
+    """After a bad-input scenario: is the service still answering?"""
+    try:
+        response = requests.post(f"{args.url}/ping", json={"message": "still there?"}, timeout=10)
+        return {"sent": "POST /ping afterwards", "status": response.status_code}
+    except Exception as exc:  # noqa: BLE001
+        return {"sent": "POST /ping afterwards", "status": None,
+                "error": f"{type(exc).__name__}: {exc}"}
 
 
 def write_report(rows, args):
