@@ -41,6 +41,10 @@ app = Flask(__name__)
 # little for either signal to mean anything; over the maximum is someone
 # testing what breaks.
 MIN_TEXT_CHARS = 50
+# Second improvement (unit 8): perplexity over a dozen tokens is mostly noise,
+# so a 10-word text got a confident-looking score it hadn't earned (EV08).
+# Counted by whitespace, not stylometry.words(), so non-Latin scripts count too.
+MIN_TEXT_WORDS = 40
 MAX_TEXT_CHARS = 20_000
 MAX_REASONING_CHARS = 5_000
 
@@ -241,6 +245,9 @@ def submit():
     if len(text) > MAX_TEXT_CHARS:
         return refuse("text_too_long",
                       f"The text is too long. Send at most {MAX_TEXT_CHARS:,} characters.", 413)
+    if len(text.split()) < MIN_TEXT_WORDS:
+        return refuse("text_too_short",
+                      f"The text is too short to judge fairly. Send at least {MIN_TEXT_WORDS} words.", 400)
     if not isinstance(creator_id, str) or not creator_id.strip():
         return refuse("missing_creator_id", "Say who wrote this in the `creator_id` field.", 400)
     creator_id = creator_id.strip()

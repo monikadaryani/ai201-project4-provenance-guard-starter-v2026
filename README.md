@@ -41,7 +41,7 @@
 
 **1. The request arrives (`POST /submit` in `app.py`).** A client sends the text to the service as JSON, for example `{"text": "...", "creator_id": "..."}`. Flask receives it and turns the JSON body into a Python dictionary with `request.get_json()`. **It adds** a readable form of the submission that the rest of the code can work with. Before this step it's just bytes over the network. After it, there's a dict holding the `text` and the `creator_id` of whoever sent it. Nothing has been judged yet.
 
-**2. The submission is unpacked and given an ID (`submit()` in `app.py`).** The handler takes `text` and `creator_id` out of the dictionary and checks them against the contract below. Text that is missing, not a string, blank, under 50 characters or over 20,000 is turned away here with a 4xx error and a plain-language message, and so is a missing `creator_id`. Nothing bad reaches a later step, and nothing turned away is logged as a decision. It then creates a `content_id` with `uuid.uuid4()`. **It adds** a unique ID for this one submission. Every later step, the log entry, and any appeal the writer files will use this ID to refer to it.
+**2. The submission is unpacked and given an ID (`submit()` in `app.py`).** The handler takes `text` and `creator_id` out of the dictionary and checks them against the contract below. Text that is missing, not a string, blank, under 50 characters, under 40 words or over 20,000 characters is turned away here with a 4xx error and a plain-language message, and so is a missing `creator_id`. Nothing bad reaches a later step, and nothing turned away is logged as a decision. It then creates a `content_id` with `uuid.uuid4()`. **It adds** a unique ID for this one submission. Every later step, the log entry, and any appeal the writer files will use this ID to refer to it.
 
 **3. The model signal (`detector.model_signal` in `detector.py`).** The text is run through GPT-2 on the local machine to measure its perplexity, meaning how predictable the model finds each next word. That perplexity is squashed onto a 0–1 scale, where low perplexity means a high score. **It adds** `model_score`, a number from 0 to 1 where higher means "reads more like AI." This step judges the words themselves, not the shape of the text.
 
@@ -86,7 +86,7 @@ The contract every other piece has to keep. All bodies are JSON. Every error loo
 
 | Field | Type | Required | Rule |
 |---|---|---|---|
-| `text` | string | yes | The writing to check. At least 50 characters after trimming whitespace. At most 20,000 characters. |
+| `text` | string | yes | The writing to check. At least 50 characters and at least 40 words after trimming whitespace (the word minimum was added as the second improvement). At most 20,000 characters. |
 | `creator_id` | string | yes | Who submitted it. Not empty. Used for the log, appeals, and (in unit 8) rate limiting. |
 
 Only the first ~400 tokens (about 300 words) reach the model signal (`DETECTOR_MAX_TOKENS`). The style signal reads the whole text.
@@ -112,7 +112,7 @@ Only the first ~400 tokens (about 300 words) reach the model signal (`DETECTOR_M
 |---|---|---|
 | 400 | `invalid_json` | The body isn't a JSON object. |
 | 400 | `missing_text` | `text` is absent, not a string, or empty after trimming. |
-| 400 | `text_too_short` | Under 50 characters. Too little to score honestly, and the detector refuses under 3 tokens. |
+| 400 | `text_too_short` | Under 50 characters, or under 40 words. Too little to score honestly. |
 | 413 | `text_too_long` | Over 20,000 characters. |
 | 400 | `missing_creator_id` | `creator_id` is absent, not a string, or empty. |
 | 429 | `rate_limited` | Unit 8, once limiting is on. Already handled in `app.py`. |
@@ -307,6 +307,8 @@ The score is the combined score from `scoring.py::combine_signals`. A score of e
 
 The unsure case is the same message as my split case, with "I'm" written as "I am". That one change moved the combined score from 0.3499 (human) to 0.3602 (unsure). Short texts sit close to the boundaries, and a contraction is enough to cross one. That's a good reason the unsure label had to be harmless to receive.
 
+> **Note (unit 8):** these short-message results were recorded in unit 7. The second improvement added a 40-word minimum, so this 23-word message would now be refused with a 400 `text_too_short` instead of scored.
+
 **Why I worded the "unsure" one this way:**
 <!-- It's the hardest of the three. It has to admit uncertainty without
      sounding like an accusation, because the person reading it may well have
@@ -332,6 +334,8 @@ The AI label is worded with the same care. It says "probably", calls itself "an 
      and the log entries. -->
 
 **A submission**
+
+> **Note (unit 8):** these short-message results were recorded in unit 7. The second improvement added a 40-word minimum, so this 23-word message would now be refused with a 400 `text_too_short` instead of scored.
 
 <!-- The response needs content_id, guess, confidence, label, AND both
      signal scores - model_score and style_score. Unit 8's tools read those
@@ -555,6 +559,28 @@ under **Rate Limiting**, and check GET /log recorded the rejections.
 Wrote results/flood_2026-11-10_1258.md
 
 ```
+
+### Stretch goal: per-creator limits
+
+The limit is keyed to `creator_id`, not to the caller's address (`app.py::rate_limit_key`). It falls back to the address only when the body has no usable `creator_id`: a missing ID, a non-string ID, or a body that isn't a JSON object. I tested what that changes by sending requests through Flask's test client with a faked address on each one. The text was deliberately too short, so the route refused it with a 400, but the limiter counts a request before the route runs.
+
+```
+A) one creator, a different IP address on every request (VPN / proxy rotation):
+   [400, 400, 400, 400, 400, 429, 429, 429]
+B) one IP address, a different creator_id on every request (shared household / classroom):
+   [400, 400, 400, 400, 400, 400, 400, 400]
+C) the cost: someone else floods using a real writer's creator_id, then the writer submits:
+   writer's own submission from their own address: 429 rate_limited
+```
+
+**What it catches that per-address limiting missed (A).** One person probing my thresholds from many addresses: a VPN, a phone and a laptop, or rotating proxies. Per-address limiting sees eight different callers and lets all of them through. Per-creator limiting sees one writer and stops them at the 6th request, whatever address they come from. It also stops one busy person in a shared building from using up everyone else's limit (B). Eight different writers behind one address are never blocked, where per-address limiting would have blocked the sixth of them.
+
+**What it costs.**
+- **The caller names themselves.** Nothing checks `creator_id`, so a script that sends a new ID with every request is never limited at all. That's the abuse per-address limiting *does* catch, as long as the script stays on one address.
+- **The limit can be turned against a writer (C).** Anyone who knows a writer's `creator_id` can send five junk requests under it, and the real writer is locked out for the minute, from their own address, through no fault of their own. Per-address limiting can't be aimed at someone like that.
+- **Malformed requests still share an address bucket.** RQ10 and RQ11 in the attack run got 429 instead of 400 because of that.
+
+The fix for the first two is the same: `creator_id` would have to be something the service issues and checks, like a logged-in account, not a string the caller types. Until then, a looser per-address limit layered on top (say 30 a minute) would catch the ID-rotating script without punishing a shared household.
 
 ---
 
@@ -971,6 +997,96 @@ Yes, for exactly the problem it targeted, and I can show nothing else moved.
 
 **What it didn't fix.** The bigger problem, sentence-length spread (patterns 1, 3 and 4 and the criterion 2 miss), is untouched: the eight evasions and four false positives are still broken. Fixing that means changing how spread works and recalibrating everything, which is where I'd go next.
 
+### Second improvement (stretch goal): a 40-word minimum
+
+**What I changed:** one check in the route, `app.py::submit`. Text with fewer than 40 words (counted by whitespace, `MIN_TEXT_WORDS = 40`) is refused with a 400 `text_too_short`: *"The text is too short to judge fairly. Send at least 40 words."* The old 50-character check stays. I count words by splitting on spaces, not with `stylometry.words`, so writing in a non-Latin script counts its words like anything else.
+
+**Which diagnosis pointed at it:** pattern 2, EV08. A 10-word text got a model score of 0.245, but perplexity over a dozen tokens is mostly noise, so the service gave a confident-looking number it hadn't earned. The stage was the route: a 50-character minimum is far below anything GPT-2 can judge. I named this fix, and the number 40, in *What's Still Broken* before running it, so the number wasn't picked to make the results look good.
+
+#### Attack Run — After 2
+
+56 attacks, 2026-11-10 22:20, same attack set and same verdict rules (full output: `results/attack_run_2026-11-10_2220_after2.md`). **42 held, 14 broke** (after the first improvement: 41 / 15). No attack got a 5xx.
+
+| ID | Targeting | Status | Guess | Score | Verdict |
+|---|---|---|---|---|---|
+| EV01 | typos raise word variety | 200 | unsure | 0.457 | BROKE |
+| EV02 | broken-up sentences raise length spread | 200 | unsure | 0.447 | BROKE |
+| EV03 | a pasted quotation changes the shape | 200 | unsure | 0.587 | BROKE |
+| EV04 | unusual words raise perplexity | 200 | ai | 0.681 | HELD |
+| EV05 | heavy human editing pass | 200 | human | 0.266 | BROKE |
+| EV06 | one very long sentence and one very short | 200 | unsure | 0.362 | BROKE |
+| EV07 | padding with punctuation | 200 | unsure | 0.489 | BROKE |
+| EV08 | text below the token window | 400 | — | — | **HELD** (was BROKE: refused, too short to judge) |
+| EV09 | AI text with a human opening paragraph | 200 | unsure | 0.564 | BROKE |
+| EV10 | repeated stanza structure | 200 | ai | 0.807 | HELD |
+| FP01 | plain, clear human writing | 200 | unsure | 0.543 | HELD |
+| FP02 | human writing in a formal register | 200 | ai | 0.771 | BROKE |
+| FP03 | a non-native English speaker writing carefully | 200 | ai | 0.729 | BROKE |
+| FP04 | a student essay written to a rubric | 200 | ai | 0.756 | BROKE |
+| FP05 | technical documentation written by a person | 200 | ai | 0.805 | BROKE |
+| FP06 | a person imitating a formal template | 200 | unsure | 0.640 | HELD (only because of the split cap) |
+| FP07 | human writing that repeats a phrase | 200 | unsure | 0.566 | HELD |
+| FP08 | very short genuine human submission | 400 | — | — | HELD (refused, not accused) |
+| PI01 | instruction to ignore the check | 200 | human | 0.306 | BROKE |
+| PI02 | instruction disguised as a system message | 200 | human | 0.233 | BROKE |
+| PI03 | instruction in the writer's voice | 200 | unsure | 0.648 | BROKE |
+| PI04 | make the label text hostile | 200 | unsure | 0.494 | HELD (label text is fixed) |
+| PI05 | inject into the audit log | 400 | — | — | HELD (now refused as too short; log still valid) |
+| PI06 | instruction plus real human text | 200 | unsure | 0.520 | HELD |
+| MF01 | text is only whitespace | 400 | — | — | HELD |
+| MF02 | text is a single character | 400 | — | — | HELD |
+| MF03 | text is control characters | 400 | — | — | HELD |
+| MF04 | text is only punctuation | 400 | — | — | HELD |
+| MF05 | a very long single word | 400 | — | — | HELD (now refused) |
+| MF06 | emoji only | 400 | — | — | HELD (now refused) |
+| MF07 | right-to-left script (Arabic) | 400 | — | — | HELD (now refused: 17 words) |
+| MF08 | 60,000 characters | 413 | — | — | HELD |
+| RQ01 | no text field | 400 | — | — | HELD |
+| RQ02 | no creator_id | 400 | — | — | HELD |
+| RQ03 | text is a number | 400 | — | — | HELD |
+| RQ04 | text is a list | 400 | — | — | HELD |
+| RQ05 | text is null | 400 | — | — | HELD |
+| RQ06 | creator_id is an object | 400 | — | — | HELD |
+| RQ07 | body is a JSON array | 400 | — | — | HELD |
+| RQ08 | body is unparseable JSON | 400 | — | — | HELD |
+| RQ09 | body is empty | 400 | — | — | HELD |
+| RQ10 | body is form-encoded | 429 | — | — | HELD (but the wrong reason, see below) |
+| RQ11 | JSON sent as plain text | 429 | — | — | HELD (but the wrong reason, see below) |
+| RQ12 | deeply nested JSON | 400 | — | — | HELD |
+| FL01_01–05 | 20 rapid submissions from one creator | 400 | — | — | HELD (refused as too short; still counted by the limiter) |
+| FL01_06–12 | 20 rapid submissions from one creator | 429 | — | — | HELD |
+
+| Family | Held | Broke | Change from After |
+|---|---|---|---|
+| evasion | 3 | 7 | +1 held (EV08) |
+| false_positive | 4 | 4 | — |
+| prompt_injection | 3 | 3 | — (PI05 now refused instead of scored) |
+| malformed | 20 | 0 | — (MF05–07 now refused instead of scored) |
+| flood_same_creator | 12 | 0 | — (first five now refused; the limit still kicks in at the sixth) |
+
+#### Run Log — After 2
+
+Five criteria, three trials each (`results/run_2026-11-10_2220_after2.md`, produced by `run_eval.py::main`):
+
+| Criterion | Target | Run 1 | Run 2 | Run 3 | Verdict |
+|---|---|---|---|---|---|
+| 1. My own writing flagged as AI | ≤ 1 of 10 | 0/10 | 0/10 | 0/10 | MET |
+| 2. AI scores above human scores | gap ≥ 0.30 | 0.287 | 0.287 | 0.287 | MISSED |
+| 3. All three labels reachable | 3 of 3 | 3/3 | 3/3 | 3/3 | MET |
+| 4. Appeal always changes status | 5 of 5, and made-up ID 404 | 5/5, 404 | 5/5, 404 | 5/5, 404 | MET |
+| 5. Bad input gets a 4xx, not a 5xx | 6 of 6, and `/ping` answers | 6/6, ping 200 | 6/6, ping 200 | 6/6, ping 200 | MET |
+
+**Did it help:** a little, and it cost something real.
+
+- **What it fixed:** EV08 now gets a 400 instead of a score. Broke went from 15 to 14. Nothing that used to be held broke.
+- **What it cost:**
+  - **Real writing of mine can't be checked any more.** My "Hug yourself…" text (33 words) in the label-coverage scenario is now refused, so that scenario has 8 scored inputs instead of 9. Criterion 3 still passes, because the human label still appears. But a real writer sending a short honest piece now gets "too short" and no answer at all.
+  - **Short non-English writing is refused.** The Arabic sentence (17 words) used to get an honest "unsure" after the first improvement. Now it gets a 400, which is fair on length but means short writing in any language gets no answer.
+  - **The flood attack's text was short too.** It's now refused before scoring. The rate limit still works (429 from the sixth request), but the flood family no longer tests decisions under load, only the limiter.
+- **What didn't move:** criteria 1, 2, 4 and 5 came back identical, and criterion 2 is still missed at 0.287. None of the evasions or false positives that matter most (patterns 1, 3 and 4) were short, so this change couldn't reach them.
+
+**Would I keep it?** Yes, but I'd change the message. Refusing to guess about 10 words is more honest than guessing. But "Send at least 40 words" to someone who wrote a short real thing reads like a brush-off. I'd add "we can't fairly judge writing this short, so we don't try", so the writer knows it isn't about them.
+
 ---
 
 ## What's Still Broken
@@ -978,7 +1094,7 @@ Yes, for exactly the problem it targeted, and I can show nothing else moved.
 <!-- For each attack still getting through and each criterion still missed:
      what you'd do, and why you stopped. -->
 
-After the improvement, 15 attacks still get through and criterion 2 is still missed. Grouped by the diagnosis patterns above:
+After both improvements, 14 attacks still get through and criterion 2 is still missed. Grouped by the diagnosis patterns above:
 
 **Changing sentence lengths: EV02, EV03, EV06, EV07, EV09, and PI01 and PI03.**
 *What I'd do:* two changes that go together.
@@ -989,7 +1105,7 @@ After the improvement, 15 attacks still get through and criterion 2 is still mis
 
 **Typos: EV01.** *What I'd do:* score the model signal on spell-corrected text. *Why I stopped:* real people make typos, and correcting them would remove something genuinely human from the text. Every honest writer would get pushed a little toward AI to catch one trick, and I'm not sure that's a good trade.
 
-**Too short to judge: EV08.** *What I'd do:* change the route's minimum from 50 characters to about 40 *words*, and refuse anything shorter with a 400 that says it's too short to judge fairly. *Why I stopped:* one change per round. It would also refuse genuine short writing (FP08 already gets refused at 50 characters), and I'd rather decide that alongside the label text.
+**Too short to judge: EV08.** Fixed by the second improvement (a 40-word minimum, above). It's no longer broken, but the cost is that short genuine writing is now refused.
 
 **Fake system message: PI02.** *What I'd do:* nothing aimed at the injection itself. Filtering strings like "SYSTEM:" is a losing game, because the next attack just words it differently. PI02 works because its odd tokens push perplexity up, the same mechanism as the typos, so the fix belongs with EV01's.
 
