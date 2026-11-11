@@ -858,14 +858,104 @@ I picked this one over the bigger problem (sentence-length spread, patterns 1, 3
 
 <!-- Same format. `run_attacks.py --label after` -->
 
+56 attacks, 2026-11-10 21:59, same attack set and same verdict rules as before (full output: `results/attack_run_2026-11-10_2159_after.md`). **41 held, 15 broke** (before: 39 held, 17 broke). No attack got a 5xx.
 
+| ID | Targeting | Status | Guess | Score | Verdict |
+|---|---|---|---|---|---|
+| EV01 | typos raise word variety | 200 | unsure | 0.457 | BROKE |
+| EV02 | broken-up sentences raise length spread | 200 | unsure | 0.447 | BROKE |
+| EV03 | a pasted quotation changes the shape | 200 | unsure | 0.587 | BROKE |
+| EV04 | unusual words raise perplexity | 200 | ai | 0.681 | HELD |
+| EV05 | heavy human editing pass | 200 | human | 0.266 | BROKE |
+| EV06 | one very long sentence and one very short | 200 | unsure | 0.362 | BROKE |
+| EV07 | padding with punctuation | 200 | unsure | 0.489 | BROKE |
+| EV08 | text below the token window | 200 | unsure | 0.473 | BROKE |
+| EV09 | AI text with a human opening paragraph | 200 | unsure | 0.564 | BROKE |
+| EV10 | repeated stanza structure | 200 | ai | 0.807 | HELD |
+| FP01 | plain, clear human writing | 200 | unsure | 0.543 | HELD |
+| FP02 | human writing in a formal register | 200 | ai | 0.771 | BROKE |
+| FP03 | a non-native English speaker writing carefully | 200 | ai | 0.729 | BROKE |
+| FP04 | a student essay written to a rubric | 200 | ai | 0.756 | BROKE |
+| FP05 | technical documentation written by a person | 200 | ai | 0.805 | BROKE |
+| FP06 | a person imitating a formal template | 200 | unsure | 0.640 | HELD (only because of the split cap) |
+| FP07 | human writing that repeats a phrase | 200 | unsure | 0.566 | HELD |
+| FP08 | very short genuine human submission | 400 | — | — | HELD (refused, not accused) |
+| PI01 | instruction to ignore the check | 200 | human | 0.306 | BROKE |
+| PI02 | instruction disguised as a system message | 200 | human | 0.233 | BROKE |
+| PI03 | instruction in the writer's voice | 200 | unsure | 0.648 | BROKE |
+| PI04 | make the label text hostile | 200 | unsure | 0.494 | HELD (label text is fixed) |
+| PI05 | inject into the audit log | 200 | unsure | 0.567 | HELD (log line stayed valid JSON) |
+| PI06 | instruction plus real human text | 200 | unsure | 0.520 | HELD |
+| MF01 | text is only whitespace | 400 | — | — | HELD |
+| MF02 | text is a single character | 400 | — | — | HELD |
+| MF03 | text is control characters | 400 | — | — | HELD |
+| MF04 | text is only punctuation | 400 | — | — | HELD |
+| MF05 | a very long single word | 200 | unsure | 0.640 | HELD |
+| MF06 | emoji only | 200 | unsure | 0.640 | **HELD** (was BROKE) |
+| MF07 | right-to-left script (Arabic) | 200 | unsure | 0.640 | **HELD** (was BROKE) |
+| MF08 | 60,000 characters | 413 | — | — | HELD |
+| RQ01 | no text field | 400 | — | — | HELD |
+| RQ02 | no creator_id | 400 | — | — | HELD |
+| RQ03 | text is a number | 400 | — | — | HELD |
+| RQ04 | text is a list | 400 | — | — | HELD |
+| RQ05 | text is null | 400 | — | — | HELD |
+| RQ06 | creator_id is an object | 400 | — | — | HELD |
+| RQ07 | body is a JSON array | 400 | — | — | HELD |
+| RQ08 | body is unparseable JSON | 400 | — | — | HELD |
+| RQ09 | body is empty | 400 | — | — | HELD |
+| RQ10 | body is form-encoded | 429 | — | — | HELD (but the wrong reason, see below) |
+| RQ11 | JSON sent as plain text | 429 | — | — | HELD (but the wrong reason, see below) |
+| RQ12 | deeply nested JSON | 400 | — | — | HELD |
+| FL01_01–05 | 20 rapid submissions from one creator | 200 | human | 0.202 | HELD |
+| FL01_06–12 | 20 rapid submissions from one creator | 429 | — | — | HELD |
+
+| Family | Held | Broke | Change |
+|---|---|---|---|
+| evasion | 2 | 8 | — |
+| false_positive | 4 | 4 | — |
+| prompt_injection | 3 | 3 | — |
+| malformed | 20 | 0 | +2 held (MF06, MF07) |
+| flood_same_creator | 12 | 0 | — |
+
+### Run Log — After
+
+Five criteria, three trials each, after the change (`results/run_2026-11-10_2159_after.md`, produced by `run_eval.py::main`):
+
+| Criterion | Target | Run 1 | Run 2 | Run 3 | Verdict |
+|---|---|---|---|---|---|
+| 1. My own writing flagged as AI | ≤ 1 of 10 | 0/10 | 0/10 | 0/10 | MET |
+| 2. AI scores above human scores | gap ≥ 0.30 | 0.287 | 0.287 | 0.287 | MISSED |
+| 3. All three labels reachable | 3 of 3 | 3/3 | 3/3 | 3/3 | MET |
+| 4. Appeal always changes status | 5 of 5, and made-up ID 404 | 5/5, 404 | 5/5, 404 | 5/5, 404 | MET |
+| 5. Bad input gets a 4xx, not a 5xx | 6 of 6, and `/ping` answers | 6/6, ping 200 | 6/6, ping 200 | 6/6, ping 200 | MET |
+
+### Before and after, side by side
+
+| | Before | After |
+|---|---|---|
+| Attacks held / broke | 39 / 17 | **41 / 15** |
+| MF06 (emoji) | ai, 0.749, BROKE | **unsure, 0.640, HELD** |
+| MF07 (Arabic) | ai, 0.703, BROKE | **unsure, 0.640, HELD** |
+| Other 54 attacks | — | unchanged, row for row |
+| 1. My own writing flagged as AI | 0/10 · MET | 0/10 · MET |
+| 2. AI scores above human scores | 0.287 · MISSED | 0.287 · MISSED |
+| 3. All three labels reachable | 3/3 · MET | 3/3 · MET |
+| 4. Appeal always changes status | 5/5, 404 · MET | 5/5, 404 · MET |
+| 5. Bad input gets a 4xx, not a 5xx | 6/6, ping 200 · MET | 6/6, ping 200 · MET |
 
 **Did it help, and how do I know:**
 
 <!-- Widening the unsure band usually fixes one problem and creates another.
      Reporting that trade honestly is worth full credit. -->
 
+Yes, for exactly the problem it targeted, and I can show nothing else moved.
 
+- **The two targeted attacks flipped.** MF06 (emoji) and MF07 (Arabic) went from **ai** (0.749, 0.703) to **unsure** (0.640). Their signal scores didn't change (model 0.997 and 0.906, style 0.5). The rule now caps them because the style signal had nothing to measure. Broke went from 17 to 15.
+- **Nothing else moved.** I compared the before and after attack reports row by row: the other 54 attacks have the same status, the same guess and the same score. The eval (`results/run_2026-11-10_2159_after.md`) also came back identical to the before run on all five criteria in all three trials: criteria 1, 3, 4 and 5 still MET, criterion 2 still MISSED at 0.287. GPT-2 scoring is deterministic, so identical numbers mean the change really had no other effect, not that it happened to balance out.
+
+**The trade.** A text that gets no style reading can now never be labelled AI, however sure the model is. So AI-generated text in another language, or text written to dodge my word matcher, will always come back "unsure" at worst. I'm accepting that on purpose. One signal alone isn't enough to accuse someone, and that already applied when the two signals disagreed. Now it also applies when one of them couldn't read the text at all. Missing some AI text in Arabic costs the site a little, and accusing an Arabic writer with no evidence costs them a lot.
+
+**What it didn't fix.** The bigger problem, sentence-length spread (patterns 1, 3 and 4 and the criterion 2 miss), is untouched: the eight evasions and four false positives are still broken. Fixing that means changing how spread works and recalibrating everything, which is where I'd go next.
 
 ---
 
